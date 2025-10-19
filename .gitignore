@@ -1,0 +1,75 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+.env
+.python-version
+
+# Unit test / coverage reports
+.pytest_cache/
+.cache/
+coverage.xml
+.coverage*
+htmlcov/
+
+# Type checker / linters
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# IDE / editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific caches / outputs
+# Local data cache used by juliams DataFetcher
+*.pkl
+**/.juliams_cache/
+
+# Generated analysis outputs (images/reports) if produced
+juliams/output/*.png
+juliams/output/*.csv
+juliams/output/*.json
+juliams/output/*.txt
+
