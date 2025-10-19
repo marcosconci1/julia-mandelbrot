@@ -2,6 +2,8 @@
 
 A Python library for financial time series analysis that implements a comprehensive market regime classification system combining trend/volatility analysis, fractal (Hurst) analysis, and fuzzy logic for probabilistic market state assessment.
 
+<img width="941" height="990" alt="Figure_1" src="https://github.com/user-attachments/assets/8e445176-3e86-401c-80cc-671094fe3597" />
+
 ## Overview
 
 The Julia Mandelbrot System provides a modular framework for analyzing financial markets through multiple lenses:
