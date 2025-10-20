@@ -13,7 +13,8 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
 - **Fuzzy Logic**: Probabilistic regime classification providing degrees of membership rather than binary states
 - **Forward Returns Analysis**: Statistical analysis of future returns conditioned on current regime
 - **Markov Transitions**: Regime transition probability matrices and persistence analysis
-- **Rich Visualizations**: Comprehensive charts showing price, indicators, and regime evolution
+- **Rich Visualizations**: Comprehensive charts showing price, indicators, and regime evolution (legacy dashboard + optional extended plots)
+- **Unified CLI**: Single entry point that auto-detects the correct data source (Yahoo Finance for equities, Binance for crypto)
 
 ## Features
 
@@ -42,70 +43,59 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
    - Expected regime durations
 
 5. **Data Management**
-   - Yahoo Finance integration
-   - Automatic caching
-   - Missing data handling
+   - Yahoo Finance (equities) and Binance (crypto) integrations
+   - Automatic caching with rate limiting and retry logic
+   - Symbol validation and source auto-detection
 
 ## Installation
-
-### Prerequisites
-
-- Python 3.8 or higher
-- pip package manager
-
-### Install from Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/julia-mandelbrot.git
 cd julia-mandelbrot
 
+# (Optional) create a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### Dependencies
-
-Core requirements:
-- `pandas>=1.3.0`
-- `numpy>=1.21.0`
-- `yfinance>=0.2.0`
-- `scipy>=1.7.0`
-- `statsmodels>=0.13.0`
-- `nolds>=0.5.0` (for Hurst exponent)
-- `scikit-fuzzy>=0.4.2` (for fuzzy logic)
-- `matplotlib>=3.4.0`
-- `seaborn>=0.11.0`
-
 ## Quick Start
+
+```bash
+# Unified CLI with auto source detection (defaults to AAPL if omitted)
+python main.py
+
+# Analyse a crypto pair, generate extra plots, and export them
+python main.py BTCUSDT --period 1y --extra-plots --save-plots output/charts --no-plot
+```
+
+Programmatic usage (for notebooks / pipelines):
 
 ```python
 from juliams.config import JMSConfig
-from juliams.data import DataFetcher
-from juliams.features import (
-    compute_trend_features,
-    compute_volatility_features,
-    compute_hurst_features
-)
+from juliams.data import DataFetcherFactory
+from juliams.features import compute_trend_features, compute_volatility_features, compute_hurst_features
 from juliams.regimes import RegimeClassifier
 
-# 1. Setup configuration
 config = JMSConfig()
+source_cfg = config.get_source_config("stock")
 
-# 2. Fetch data
-fetcher = DataFetcher(config)
-df = fetcher.fetch_data("AAPL", period="2y")
+fetcher = DataFetcherFactory.create(symbol="AAPL", config=config)
+df = fetcher.fetch_data("AAPL", period=source_cfg["default_period"])
 
-# 3. Compute features
-df = compute_trend_features(df, config.to_dict())
-df = compute_volatility_features(df, config.to_dict())
-df = compute_hurst_features(df, config.to_dict())
+df = compute_trend_features(df, source_cfg)
+df = compute_volatility_features(df, source_cfg)
+df = compute_hurst_features(df, source_cfg)
 
-# 4. Classify regimes
-classifier = RegimeClassifier()
-df = classifier.classify(df)
-
-# 5. View current regime
+clf = RegimeClassifier(
+    trend_threshold_up=source_cfg["trend_threshold_up"],
+    trend_threshold_down=source_cfg["trend_threshold_down"],
+    volatility_threshold=source_cfg["volatility_percentile"],
+)
+df = clf.classify(df)
 print(f"Current regime: {df['regime_name'].iloc[-1]}")
 ```
 
@@ -113,70 +103,75 @@ print(f"Current regime: {df['regime_name'].iloc[-1]}")
 
 ### Running Complete Analysis
 
-```python
-python example_usage.py
+```bash
+python main.py AAPL --period 2y
 ```
 
 This will:
-1. Fetch 2 years of Apple (AAPL) stock data
-2. Compute all technical indicators
-3. Classify market regimes
-4. Analyze forward returns
-5. Generate visualizations
-6. Display comprehensive statistics
+1. Auto-detect the correct data source (Yahoo Finance for AAPL)
+2. Fetch 2 years of price history (cached when possible)
+3. Compute trend, volatility, Hurst, and fractal features
+4. Classify regimes (crisp + optional fuzzy)
+5. Analyse forward returns and regime transitions
+6. Render the legacy 4-panel dashboard (plus optional extended plots)
 
 ### Custom Configuration
 
 ```python
 from juliams.config import JMSConfig
 
-# Create custom configuration
 config = JMSConfig(
-    trend_window=30,  # 30-day trend window
-    volatility_window=20,  # 20-day volatility
-    hurst_window=100,  # 100-day Hurst
-    trend_threshold_up=0.3,  # Higher threshold for uptrend
-    use_fuzzy=True  # Enable fuzzy logic
+    trend_window=30,
+    volatility_window=20,
+    hurst_window=120,
+    trend_threshold_up=0.3,
+    use_fuzzy=True,
 )
+
+crypto_cfg = config.get_source_config("crypto")
+crypto_cfg["trend_window"] = 12
+crypto_cfg["volatility_percentile"] = 0.8
 ```
 
 ### Analyzing Multiple Stocks
 
 ```python
-from juliams.data import DataFetcher
+from juliams.data import DataFetcherFactory
 
-fetcher = DataFetcher()
+fetcher = DataFetcherFactory.create(source_type="stock")
 tickers = ["AAPL", "MSFT", "GOOGL"]
 
-# Fetch data for multiple tickers
-data = fetcher.fetch_multiple(tickers, period="1y")
+datasets = fetcher.fetch_multiple(tickers, period="1y")
 
-# Analyze each stock
-for ticker, df in data.items():
+for ticker, df in datasets.items():
     # Run analysis pipeline
-    # ...
+    ...
 ```
 
 ## Module Structure
 
 ```
 juliams/
-├── config.py              # Configuration management
-├── data.py                # Data fetching (Yahoo Finance)
+├── config.py              # Global + source-specific configuration
+├── data/
+│   ├── base.py            # Abstract data-source interface
+│   ├── stock.py           # Yahoo Finance implementation
+│   ├── crypto.py          # Binance implementation
+│   └── utils.py           # Detection, validation, rate limiting
 ├── features/
-│   ├── trend.py          # Trend analysis
-│   ├── volatility.py     # Volatility indicators
-│   ├── hurst.py          # Hurst exponent
-│   └── fractal.py        # Fractal filtering
+│   ├── trend.py           # Trend analysis
+│   ├── volatility.py      # Volatility indicators
+│   ├── hurst.py           # Hurst exponent
+│   └── fractal.py         # Fractal filtering
 ├── regimes/
-│   ├── classification.py # Crisp regime classification
-│   └── fuzzy.py          # Fuzzy logic system
+│   ├── classification.py  # Crisp regime classification
+│   └── fuzzy.py           # Fuzzy logic system
 ├── analysis/
 │   ├── forward_returns.py # Forward return analysis
 │   ├── transitions.py     # Markov transitions
 │   └── segments.py        # Segment analysis
 ├── visualization/         # Plotting functions
-└── output/               # Export utilities
+└── output/                # Export utilities
 ```
 
 ## Market Regimes
@@ -213,13 +208,16 @@ The system classifies markets into six regimes:
 
 Key parameters in `JMSConfig`:
 
-- `trend_window`: Rolling window for trend calculation (default: 20)
-- `volatility_window`: Rolling window for volatility (default: 20)
-- `hurst_window`: Window for Hurst exponent (default: 100)
-- `trend_threshold_up/down`: Thresholds for trend classification (default: ±0.2)
-- `volatility_percentile`: Percentile for high/low volatility split (default: 0.67)
-- `hurst_threshold`: Threshold for fractal memory (default: 0.55)
+- `stock` / `crypto`: Source-specific dataclasses with window sizes, thresholds, and default periods
+- `trend_window`: Legacy default rolling window for trend calculation (used when source-specific overrides absent)
+- `volatility_window`: Legacy default rolling window for volatility
+- `hurst_window`: Legacy default window for Hurst exponent
+- `trend_threshold_up/down`: Global thresholds for trend classification
+- `volatility_percentile`: Global percentile for high/low volatility split
+- `hurst_threshold`: Threshold for fractal memory filtering
 - `use_fuzzy`: Enable fuzzy logic classification (default: True)
+
+Use `config.get_source_config('stock')` or `'crypto'` to obtain a ready-to-use dictionary for each data source.
 
 ## Output Formats
 
@@ -261,24 +259,6 @@ The Julia Mandelbrot System is inspired by:
 - **Parallel Processing**: Available for multi-ticker analysis
 - **Memory Usage**: ~100MB for 2 years of daily data per ticker
 
-## Troubleshooting
-
-### Common Issues
-
-1. **ImportError for nolds/scikit-fuzzy**
-   ```bash
-   pip install nolds scikit-fuzzy
-   ```
-
-2. **Yahoo Finance connection errors**
-   - Check internet connection
-   - Verify ticker symbol validity
-   - Clear cache if data seems stale
-
-3. **Insufficient data for Hurst**
-   - Requires minimum 100 data points
-   - Adjust `hurst_window` parameter
-
 ## Contributing
 
 Contributions are welcome! Please:
@@ -303,9 +283,5 @@ For questions or support, please open an issue on GitHub.
 ---
 
 **Disclaimer**: This library is for educational and research purposes only. Not financial advice. Use at your own risk in trading or investment decisions.
-
-
-
-
 
 
