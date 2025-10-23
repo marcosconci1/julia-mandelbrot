@@ -14,9 +14,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
-# Symbol detection -----------------------------------------------------------
-
 def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     """
     Auto-detect data source type from symbol format.
@@ -28,12 +25,12 @@ def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
         'crypto' if matches crypto patterns, 'stock' otherwise
     """
     crypto_patterns = [
-        r"^[A-Z]{2,10}USDT$",  # USDT pairs
-        r"^[A-Z]{2,10}BUSD$",  # BUSD pairs
-        r"^[A-Z]{2,10}BTC$",   # BTC pairs
-        r"^[A-Z]{2,10}ETH$",   # ETH pairs
-        r"^[A-Z]{2,10}BNB$",   # BNB pairs
-        r"^[A-Z]{2,10}USD$",   # USD pairs (some exchanges)
+        r"^[A-Z]{2,10}USDT$",  
+        r"^[A-Z]{2,10}BUSD$", 
+        r"^[A-Z]{2,10}BTC$",   
+        r"^[A-Z]{2,10}ETH$",   
+        r"^[A-Z]{2,10}BNB$",   
+        r"^[A-Z]{2,10}USD$",   
     ]
     symbol_upper = symbol.upper()
     for pattern in crypto_patterns:
@@ -41,18 +38,21 @@ def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
             return "crypto"
     return "stock"
 
+# Accept Yahoo Finance FX tickers like USDBRL=X, EURUSD=X
+_YF_FX_PATTERN = re.compile(r"^[A-Z]{3}[A-Z]{3}=X$")
 
 def validate_stock_symbol(symbol: str) -> bool:
+    s = symbol.upper().strip()
+    # Allow Yahoo FX pairs
+    if _YF_FX_PATTERN.fullmatch(s):
+        return True
+    # Allow standard stock symbols
     pattern = r"^[A-Z]{1,5}([.-][A-Z0-9]{1,3})?$"
-    return bool(re.match(pattern, symbol.upper()))
-
+    return bool(re.match(pattern, s))
 
 def validate_crypto_symbol(symbol: str) -> bool:
     pattern = r"^[A-Z]{2,10}(USDT|BUSD|BTC|ETH|BNB|USD)$"
     return bool(re.match(pattern, symbol.upper()))
-
-
-# Rate limiting --------------------------------------------------------------
 
 class RateLimiter:
     """Simple sliding-window rate limiter."""
@@ -99,7 +99,7 @@ def retry_on_failure(max_retries: int = 3, backoff: float = 2.0, exceptions: tup
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as exc:  # pragma: no cover - network errors
+                except exceptions as exc:  
                     last_exception = exc
                     if attempt < max_retries:
                         sleep_time = backoff ** attempt
@@ -131,7 +131,7 @@ def binance_rate_limit(weight: int = 1):
         @wraps(func)
         def wrapper(*args, **kwargs):
             for _ in range(weight):
-                limiter.calls.append(0)  # placeholder to enforce limit
+                limiter.calls.append(0)  
             return func(*args, **kwargs)
 
         return wrapper
