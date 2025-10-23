@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, cast
 
 import pandas as pd
 
@@ -163,7 +163,7 @@ def run_analysis(
 
     fetcher = DataFetcherFactory.create(
         symbol=symbol,
-        source_type=resolved_source,
+        source_type=cast(Literal['stock', 'crypto'], resolved_source),
         config=config,
     )
     df = fetcher.fetch_data(
@@ -229,14 +229,14 @@ def _format_decimal(value: Optional[float], precision: int = 4) -> str:
 
 def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
     """Print human-readable summary of analysis results."""
-    df: pd.DataFrame = artefacts["df"]
-    source_type: str = artefacts["source_type"]
-    source_note: str = artefacts["source_note"]
-    use_fuzzy: bool = artefacts["use_fuzzy"]
-    horizons: List[int] = artefacts["horizons"]
-    period: Optional[str] = artefacts["period"]
-    start: Optional[str] = artefacts["start"]
-    end: Optional[str] = artefacts["end"]
+    df: pd.DataFrame = cast(pd.DataFrame, artefacts["df"])
+    source_type: str = cast(str, artefacts["source_type"])
+    source_note: str = cast(str, artefacts["source_note"])
+    use_fuzzy: bool = cast(bool, artefacts["use_fuzzy"])
+    horizons: List[int] = cast(List[int], artefacts["horizons"])
+    period: Optional[str] = cast(Optional[str], artefacts["period"])
+    start: Optional[str] = cast(Optional[str], artefacts["start"])
+    end: Optional[str] = cast(Optional[str], artefacts["end"])
 
     print("\n" + "=" * 72)
     print("Julia Mandelbrot System - Unified Analysis")
@@ -284,7 +284,7 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
 
     print("\nForward Returns")
     print("-" * 72)
-    forward_analysis: Dict[str, Dict[str, Dict[str, float]]] = artefacts["forward_analysis"]
+    forward_analysis: Dict[str, Dict[str, Dict[str, float]]] = cast(Dict[str, Dict[str, Dict[str, float]]], artefacts["forward_analysis"])
     for horizon in horizons:
         key = f"{horizon}d"
         overall_stats = forward_analysis.get("Overall", {}).get(key)
@@ -307,22 +307,25 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
 
     print("\nTransition Matrix")
     print("-" * 72)
-    transition_matrix: pd.DataFrame = artefacts["transition_matrix"]
+    transition_matrix: pd.DataFrame = cast(pd.DataFrame, artefacts["transition_matrix"])
     if transition_matrix is not None and not transition_matrix.empty:
         for regime in transition_matrix.index:
-            if regime in transition_matrix.columns:
-                persistence = transition_matrix.loc[regime, regime]
-                print(f"  {regime:20s}: persistence={_format_percentage(persistence)}")
+                if regime in transition_matrix.columns:
+                    value = transition_matrix.at[regime, regime]
+                    if isinstance(value, (int, float)):
+                        persistence = float(value)
+                        print(f"  {regime:20s}: persistence={_format_percentage(persistence)}")
     else:
         print("  Transition matrix unavailable (insufficient data).")
 
     print("\nSegment Summary")
     print("-" * 72)
-    segment_summary: Dict[str, object] = artefacts["segment_summary"]
-    overall_stats = segment_summary.get("statistics", {}).get("overall", {})
+    segment_summary: Dict[str, object] = cast(Dict[str, object], artefacts["segment_summary"])
+    statistics_dict = cast(Dict[str, object], segment_summary.get("statistics", {}))
+    overall_stats = cast(Dict[str, object], statistics_dict.get("overall", {}))
     if overall_stats:
         print(f"  Total segments:      {overall_stats.get('total_segments', 0)}")
-        avg_length = overall_stats.get("avg_segment_length")
+        avg_length = cast(Optional[float], overall_stats.get("avg_segment_length"))
         print(f"  Avg length (days):   {_format_decimal(avg_length, 1)}")
         print(f"  Longest segment:     {overall_stats.get('max_segment_length', 'n/a')}")
     else:
@@ -330,10 +333,13 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
 
     current_segment = segment_summary.get("current_segment")
     if current_segment:
+        current_segment_dict = cast(Dict[str, object], current_segment)
+        start_date = cast(pd.Timestamp, current_segment_dict['start_date']).date()
+        end_date = cast(pd.Timestamp, current_segment_dict['end_date']).date()
         print(
-            f"  Current segment:     {current_segment['regime']} | "
-            f"length={current_segment['length']} days | "
-            f"start={current_segment['start_date'].date()} → end={current_segment['end_date'].date()}"
+            f"  Current segment:     {current_segment_dict['regime']} | "
+            f"length={current_segment_dict['length']} days | "
+            f"start={start_date} → end={end_date}"
         )
 
     print("\nAnalysis complete.\n")
@@ -533,12 +539,13 @@ def generate_visualizations(
     Charts are displayed by default and can optionally be saved to disk.
     """
     import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
 
-    figures: List[Tuple[str, "plt.Figure"]] = []
+    figures: List[Tuple[str, Figure]] = []
 
     try:
         figures.append(("legacy_dashboard", create_basic_visualizations(df, symbol)))
-    except Exception as exc:  # pragma: no cover - plotting best effort
+    except Exception as exc:
         print(f"Warning: failed to generate legacy dashboard ({exc}).")
 
     if include_extra:
@@ -551,7 +558,7 @@ def generate_visualizations(
             from juliams.visualization.plots import (
                 plot_transition_matrix as plot_transition_heatmap,
             )
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc: 
             print(f"Warning: unable to import extra visualization modules ({exc}).")
         else:
             try:
@@ -628,8 +635,8 @@ def main() -> None:
     if should_generate_plots:
         generate_visualizations(
             symbol,
-            artefacts["df"],
-            artefacts["transition_matrix"],
+            cast(pd.DataFrame, artefacts["df"]),
+            cast(pd.DataFrame, artefacts["transition_matrix"]),
             save_dir=args.save_plots,
             show=not args.no_plot,
             include_extra=args.extra_plots,
