@@ -9,46 +9,62 @@ import time
 from collections import deque
 from functools import wraps
 from threading import Lock
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal
 import logging
 
 logger = logging.getLogger(__name__)
 
 def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     """
-    Auto-detect data source type from symbol format.
+    Detect the appropriate data source based on symbol format.
 
     Args:
-        symbol: Symbol/ticker to analyse
+        symbol: Trading symbol to analyse
 
     Returns:
-        'crypto' if matches crypto patterns, 'stock' otherwise
+        'stock' for Yahoo Finance symbols (equities, indices, forex, futures)
+        or 'crypto' for Binance trading pairs
+
+    Examples:
+        >>> detect_source_type("AAPL")
+        'stock'
+        >>> detect_source_type("BTCUSDT")
+        'crypto'
+        >>> detect_source_type("BRL=X")
+        'stock'  # Yahoo Finance handles forex pairs
     """
-    crypto_patterns = [
-        r"^[A-Z]{2,10}USDT$",  
-        r"^[A-Z]{2,10}BUSD$", 
-        r"^[A-Z]{2,10}BTC$",   
-        r"^[A-Z]{2,10}ETH$",   
-        r"^[A-Z]{2,10}BNB$",   
-        r"^[A-Z]{2,10}USD$",   
-    ]
-    symbol_upper = symbol.upper()
-    for pattern in crypto_patterns:
-        if re.match(pattern, symbol_upper):
-            return "crypto"
+    symbol_upper = symbol.upper().strip()
+
+    # Crypto pairs (Binance spot) - e.g. BTCUSDT, ETHBUSD
+    if symbol_upper.endswith(("USDT", "BUSD")):
+        return "crypto"
+    if any(base in symbol_upper for base in ("BTC", "ETH", "BNB")) and "USD" in symbol_upper:
+        return "crypto"
+
+    # Forex (e.g., EURUSD=X), futures (GC=F), and indices (^GSPC) use Yahoo Finance
+    if "=" in symbol_upper and symbol_upper.endswith("X"):
+        return "stock"
+    if "=" in symbol_upper and symbol_upper.endswith("F"):
+        return "stock"
+    if symbol_upper.startswith("^"):
+        return "stock"
+
+    # Default to Yahoo Finance for remaining assets
     return "stock"
 
-# Accept Yahoo Finance FX tickers like USDBRL=X, EURUSD=X
-_YF_FX_PATTERN = re.compile(r"^[A-Z]{3}[A-Z]{3}=X$")
-
 def validate_stock_symbol(symbol: str) -> bool:
-    s = symbol.upper().strip()
-    # Allow Yahoo FX pairs
-    if _YF_FX_PATTERN.fullmatch(s):
-        return True
-    # Allow standard stock symbols
-    pattern = r"^[A-Z]{1,5}([.-][A-Z0-9]{1,3})?$"
-    return bool(re.match(pattern, s))
+    """
+    Validate stock ticker format.
+
+    Supports:
+        - Stocks: AAPL, BRK.B, TSM
+        - Indices: ^GSPC, ^DJI
+        - Forex: EURUSD=X, BRL=X (Yahoo Finance)
+        - Futures: GC=F, ES=F (Yahoo Finance)
+    """
+    sanitized = symbol.upper().strip()
+    pattern = r"^[\^]?[A-Z0-9\.\-]{1,10}(=[XF])?$"
+    return bool(re.fullmatch(pattern, sanitized))
 
 def validate_crypto_symbol(symbol: str) -> bool:
     pattern = r"^[A-Z]{2,10}(USDT|BUSD|BTC|ETH|BNB|USD)$"

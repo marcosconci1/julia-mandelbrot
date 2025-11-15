@@ -70,7 +70,25 @@ python main.py
 
 # Analyse a crypto pair, generate extra plots, and export them
 python main.py BTCUSDT --period 1y --extra-plots --save-plots output/charts --no-plot
+
+# Analyse forex pairs (handled by Yahoo Finance)
+python main.py BRL=X --period 2y
+python main.py EURUSD=X --period 1y
+
+# Analyse futures contracts
+python main.py GC=F --period 6mo  # Gold futures
+python main.py ES=F --period 3mo  # S&P 500 E-mini futures
 ```
+
+## Supported Instruments
+
+The system supports multiple asset classes through automatic source detection:
+
+- **Equities**: AAPL, MSFT, GOOGL, BRK.B
+- **Indices**: ^GSPC (S&P 500), ^DJI (Dow Jones), ^IXIC (NASDAQ)
+- **Cryptocurrencies**: BTCUSDT, ETHUSDT (via Binance)
+- **Forex**: EURUSD=X, GBPUSD=X, BRL=X (via Yahoo Finance)
+- **Futures**: GC=F (Gold), ES=F (E-mini S&P), CL=F (Crude Oil)
 
 Programmatic usage (for notebooks / pipelines):
 
@@ -283,5 +301,4 @@ For questions or support, please open an issue on GitHub.
 ---
 
 **Disclaimer**: This library is for educational and research purposes only. Not financial advice. Use at your own risk in trading or investment decisions.
-
 
