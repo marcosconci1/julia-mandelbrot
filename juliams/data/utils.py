@@ -9,10 +9,37 @@ import time
 from collections import deque
 from functools import wraps
 from threading import Lock
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal
 import logging
 
 logger = logging.getLogger(__name__)
+
+_STABLECOIN_SUFFIXES = ("USDT", "BUSD")
+_CRYPTO_TICKERS = {
+    "ADA",
+    "ARB",
+    "ATOM",
+    "AVAX",
+    "BCH",
+    "BNB",
+    "BTC",
+    "DOGE",
+    "DOT",
+    "ETH",
+    "ETC",
+    "FIL",
+    "ICP",
+    "LINK",
+    "LTC",
+    "MATIC",
+    "NEAR",
+    "OP",
+    "SOL",
+    "TRX",
+    "XLM",
+    "XMR",
+    "XRP",
+}
 
 def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     """
@@ -24,18 +51,26 @@ def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     Returns:
         'crypto' if matches crypto patterns, 'stock' otherwise
     """
-    crypto_patterns = [
-        r"^[A-Z]{2,10}USDT$",  
-        r"^[A-Z]{2,10}BUSD$", 
-        r"^[A-Z]{2,10}BTC$",   
-        r"^[A-Z]{2,10}ETH$",   
-        r"^[A-Z]{2,10}BNB$",   
-        r"^[A-Z]{2,10}USD$",   
-    ]
-    symbol_upper = symbol.upper()
-    for pattern in crypto_patterns:
-        if re.match(pattern, symbol_upper):
+    symbol_upper = symbol.upper().strip()
+
+    # Stablecoin/fiat quote suffixes (exact matches)
+    for suffix in _STABLECOIN_SUFFIXES:
+        if symbol_upper.endswith(suffix):
             return "crypto"
+
+    # Fiat USD pairs (e.g., BTCUSD) only when the base is a known crypto ticker
+    if symbol_upper.endswith("USD") and not symbol_upper.endswith(_STABLECOIN_SUFFIXES):
+        base = symbol_upper[:-3]
+        if base in _CRYPTO_TICKERS:
+            return "crypto"
+
+    # Crypto-to-crypto pairs (e.g., ETHBTC, BNBBTC) using deterministic splits
+    for base in _CRYPTO_TICKERS:
+        if symbol_upper.startswith(base):
+            quote = symbol_upper[len(base):]
+            if quote in _CRYPTO_TICKERS:
+                return "crypto"
+
     return "stock"
 
 # Accept Yahoo Finance FX tickers like USDBRL=X, EURUSD=X
