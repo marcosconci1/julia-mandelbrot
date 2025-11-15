@@ -14,6 +14,33 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_STABLECOIN_SUFFIXES = ("USDT", "BUSD")
+_CRYPTO_TICKERS = {
+    "ADA",
+    "ARB",
+    "ATOM",
+    "AVAX",
+    "BCH",
+    "BNB",
+    "BTC",
+    "DOGE",
+    "DOT",
+    "ETH",
+    "ETC",
+    "FIL",
+    "ICP",
+    "LINK",
+    "LTC",
+    "MATIC",
+    "NEAR",
+    "OP",
+    "SOL",
+    "TRX",
+    "XLM",
+    "XMR",
+    "XRP",
+}
+
 def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     """
     Detect the appropriate data source based on symbol format.
@@ -35,21 +62,24 @@ def detect_source_type(symbol: str) -> Literal["stock", "crypto"]:
     """
     symbol_upper = symbol.upper().strip()
 
-    # Crypto pairs (Binance spot) - e.g. BTCUSDT, ETHBUSD
-    if symbol_upper.endswith(("USDT", "BUSD")):
-        return "crypto"
-    if any(base in symbol_upper for base in ("BTC", "ETH", "BNB")) and "USD" in symbol_upper:
-        return "crypto"
+    # Stablecoin/fiat quote suffixes (exact matches)
+    for suffix in _STABLECOIN_SUFFIXES:
+        if symbol_upper.endswith(suffix):
+            return "crypto"
 
-    # Forex (e.g., EURUSD=X), futures (GC=F), and indices (^GSPC) use Yahoo Finance
-    if "=" in symbol_upper and symbol_upper.endswith("X"):
-        return "stock"
-    if "=" in symbol_upper and symbol_upper.endswith("F"):
-        return "stock"
-    if symbol_upper.startswith("^"):
-        return "stock"
+    # Fiat USD pairs (e.g., BTCUSD) only when the base is a known crypto ticker
+    if symbol_upper.endswith("USD") and not symbol_upper.endswith(_STABLECOIN_SUFFIXES):
+        base = symbol_upper[:-3]
+        if base in _CRYPTO_TICKERS:
+            return "crypto"
 
-    # Default to Yahoo Finance for remaining assets
+    # Crypto-to-crypto pairs (e.g., ETHBTC, BNBBTC) using deterministic splits
+    for base in _CRYPTO_TICKERS:
+        if symbol_upper.startswith(base):
+            quote = symbol_upper[len(base):]
+            if quote in _CRYPTO_TICKERS:
+                return "crypto"
+
     return "stock"
 
 def validate_stock_symbol(symbol: str) -> bool:
