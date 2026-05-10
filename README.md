@@ -158,9 +158,17 @@ Each flag adds columns rather than replacing them:
 | `--ewma-halflife H` | `trend_strength_ewma` | EWMA std denominator with halflife H (Caporin & Lillo 2023) |
 | `--markov-overlay` | `markov_prob_high`, `markov_state` | Two-state switching variance via `statsmodels.MarkovRegression` |
 | `--bocpd-overlay` | `bocpd_run_length`, `bocpd_change_prob` | Bayesian online change-point detection (Adams & MacKay 2007; Tsaknaki, Lillo, Mazzarisi 2024) |
+| `--bocpd-method dsm` | (same as above) | Robust DSM-BOCPD (Altamirano, Briol, Knoblauch, ICML 2023). More reliable on heavy tailed assets like gold and crypto |
+| `--markov-vol-channel TICKER` | (extends `markov_*` columns) | Add an implied volatility channel to the Markov fit (e.g. `^GVZ` for gold, `^VIX` for SPY) |
+| `--markov-auto-vol-channel` | (extends `markov_*` columns) | Auto select the vol ticker for known asset classes |
+| `--consensus-overlay` | `consensus_event` | Boolean events that fire only when DSM BOCPD and Markov both flag a change within a 5 day window |
 | `--min-dwell-days N` | (post-processes `markov_state`) | Suppresses runs shorter than N days |
 
 The same flags map to keyword arguments on `JuliaMandelbrotSystem.classify_regimes` and `JMSConfig` for programmatic use. For walk-forward calibration with strict no-future-leakage guarantees, see `juliams.regimes.walk_forward_adaptive`. For backtest-overfitting evaluation use `juliams.regimes.cpcv` (Arian, Norouzi & Seco 2024).
+
+#### Gold case study
+
+On `GC=F` 2024 to 2026, the standard BOCPD reports `run_length=502` (no change point detected) despite the worst gold rout since 1983 in early February 2026. Switching to `--bocpd-method dsm` correctly identifies 2026-01-30 as a regime break. Adding `--markov-auto-vol-channel` fuses the GVZ implied vol index into the Markov fit and flips the recent regime label from Low to High vol, matching the elevated GVZ reading. See `tests/test_dsm_gold_regression.py` and `tests/test_consensus.py::test_consensus_fires_exactly_once_on_gold_like_fixture` for the regression locks.
 
 ### Custom Configuration
 
