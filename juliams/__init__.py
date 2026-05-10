@@ -202,6 +202,7 @@ class JuliaMandelbrotSystem:
         markov_auto_vol_channel: Optional[bool] = None,
         bocpd_overlay: Optional[bool] = None,
         bocpd_method: Optional[str] = None,
+        consensus_overlay: Optional[bool] = None,
         min_dwell_days: Optional[int] = None,
     ) -> pd.DataFrame:
         """
@@ -284,6 +285,15 @@ class JuliaMandelbrotSystem:
             if bocpd_method is not None
             else getattr(cfg, "bocpd_method", "standard")
         )
+        consensus_on = (
+            consensus_overlay
+            if consensus_overlay is not None
+            else getattr(cfg, "consensus_overlay", False)
+        )
+        if consensus_on:
+            # Consensus requires both BOCPD and Markov overlays.
+            bocpd_on = True
+            markov_on = True
         dwell = (
             min_dwell_days
             if min_dwell_days is not None
@@ -350,6 +360,14 @@ class JuliaMandelbrotSystem:
                 omega=getattr(cfg, "bocpd_omega", 1.0),
                 robustness_bandwidth=getattr(cfg, "bocpd_robustness_bandwidth", 3.0),
                 varx=getattr(cfg, "bocpd_varx", None),
+            )
+
+        if consensus_on:
+            from .regimes.overlays import apply_consensus_overlay
+            self.df = apply_consensus_overlay(
+                self.df,
+                window_days=getattr(cfg, "consensus_window_days", 5),
+                cooldown_days=getattr(cfg, "consensus_cooldown_days", 10),
             )
 
         return self.df

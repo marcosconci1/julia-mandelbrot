@@ -322,6 +322,27 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--consensus-overlay",
+        action="store_true",
+        help=(
+            "Add a consensus_event boolean column. Auto-enables BOCPD and "
+            "Markov overlays. Declares a consensus event only when both "
+            "detectors fire within a 5-day window (configurable)."
+        ),
+    )
+    parser.add_argument(
+        "--consensus-window-days",
+        type=int,
+        default=5,
+        help="Maximum delay between BOCPD and Markov fires for consensus (default: 5).",
+    )
+    parser.add_argument(
+        "--consensus-cooldown-days",
+        type=int,
+        default=10,
+        help="Cooldown after a consensus event before a new one can fire (default: 10).",
+    )
+    parser.add_argument(
         "--bocpd-method",
         choices=["standard", "dsm"],
         default="standard",
@@ -429,6 +450,9 @@ def run_analysis(
     bocpd_expected_run_length: float = 100.0,
     bocpd_omega: float = 1.0,
     bocpd_robustness_bandwidth: float = 3.0,
+    consensus_overlay: bool = False,
+    consensus_window_days: int = 5,
+    consensus_cooldown_days: int = 10,
     min_dwell_days: int = 1,
 ) -> Dict[str, object]:
     """
@@ -479,6 +503,13 @@ def run_analysis(
 
     # Adaptive overlays (opt-in, additive)
     overlays_used: List[str] = []
+
+    # Consensus needs both bocpd and markov; force-enable up-front so
+    # the conditional blocks below all run.
+    if consensus_overlay:
+        bocpd_overlay = True
+        markov_overlay = True
+
     if adaptive_thresholds:
         from juliams.regimes.overlays import apply_adaptive_threshold_overlay
         df = apply_adaptive_threshold_overlay(
@@ -526,6 +557,16 @@ def run_analysis(
             else f"bocpd(lambda={bocpd_expected_run_length})"
         )
         overlays_used.append(tag)
+
+    if consensus_overlay:
+        from juliams.regimes.overlays import apply_consensus_overlay
+        df = apply_consensus_overlay(
+            df,
+            window_days=consensus_window_days,
+            cooldown_days=consensus_cooldown_days,
+        )
+        n_events = int(df["consensus_event"].sum())
+        overlays_used.append(f"consensus(events={n_events})")
 
     # Forward returns & diagnostics
     horizons_to_use = horizons or source_config.get("forward_return_horizons", [5, 10])
@@ -863,6 +904,13 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
             print(
                 f"  BOCPD:        run_length={rl}d change_prob={_format_percentage(cp)}"
             )
+        if "consensus_event" in df.columns:
+            n_events = int(df["consensus_event"].sum())
+            event_dates = df.index[df["consensus_event"]].tolist()
+            recent = (
+                f" most recent={event_dates[-1].date()}" if event_dates else ""
+            )
+            print(f"  Consensus:    {n_events} event(s){recent}")
 
     print("\nForward Returns")
     print("-" * 72)
@@ -1258,6 +1306,9 @@ def main() -> None:
             bocpd_expected_run_length=args.bocpd_expected_run_length,
             bocpd_omega=args.bocpd_omega,
             bocpd_robustness_bandwidth=args.bocpd_robustness_bandwidth,
+            consensus_overlay=args.consensus_overlay,
+            consensus_window_days=args.consensus_window_days,
+            consensus_cooldown_days=args.consensus_cooldown_days,
             min_dwell_days=args.min_dwell_days,
         )
     except Exception as exc:

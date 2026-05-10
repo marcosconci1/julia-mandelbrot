@@ -117,6 +117,9 @@ class JMSConfig:
     bocpd_omega: float = 1.0
     bocpd_robustness_bandwidth: float = 3.0
     bocpd_varx: Optional[float] = None
+    consensus_overlay: bool = False
+    consensus_window_days: int = 5
+    consensus_cooldown_days: int = 10
     min_dwell_days: int = 1
 
     forward_return_horizons: list = field(default_factory=lambda: [5, 10])
@@ -251,6 +254,9 @@ class JMSConfig:
             "bocpd_omega": self.bocpd_omega,
             "bocpd_robustness_bandwidth": self.bocpd_robustness_bandwidth,
             "bocpd_varx": self.bocpd_varx,
+            "consensus_overlay": self.consensus_overlay,
+            "consensus_window_days": self.consensus_window_days,
+            "consensus_cooldown_days": self.consensus_cooldown_days,
             "min_dwell_days": self.min_dwell_days,
             "forward_return_horizons": self.forward_return_horizons,
             "regime_colors": self.regime_colors,

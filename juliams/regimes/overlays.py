@@ -226,6 +226,42 @@ def apply_markov_overlay(
     return df
 
 
+def apply_consensus_overlay(
+    df: pd.DataFrame,
+    window_days: int = 5,
+    rl_drop_threshold: int = 30,
+    prob_high_jump_threshold: float = 0.3,
+    cooldown_days: int = 10,
+) -> pd.DataFrame:
+    """Add a ``consensus_event`` boolean column.
+
+    Requires that ``bocpd_run_length`` and ``markov_prob_high`` already
+    exist on ``df`` (i.e. the BOCPD and Markov overlays were applied
+    earlier). Raises ValueError otherwise.
+    """
+    from juliams.regimes.consensus import detect_consensus_change_points
+
+    missing = {"bocpd_run_length", "markov_prob_high"} - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"apply_consensus_overlay requires columns {sorted(missing)} "
+            "(produced by apply_bocpd_overlay and apply_markov_overlay); "
+            "enable the bocpd and markov overlays first."
+        )
+
+    events = detect_consensus_change_points(
+        df["bocpd_run_length"],
+        df["markov_prob_high"],
+        window_days=window_days,
+        rl_drop_threshold=rl_drop_threshold,
+        prob_high_jump_threshold=prob_high_jump_threshold,
+        cooldown_days=cooldown_days,
+    )
+    df = df.copy()
+    df["consensus_event"] = events
+    return df
+
+
 def apply_bocpd_overlay(
     df: pd.DataFrame,
     expected_run_length: float = 100.0,
