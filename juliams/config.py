@@ -99,6 +99,19 @@ class JMSConfig:
     fuzzy_trend_range: Tuple[float, float] = (-3.0, 3.0)
     fuzzy_vol_range: Tuple[float, float] = (0.0, 0.5)
 
+    # Adaptive (data-driven) regime overlays. All default to off so that
+    # existing callers see identical behaviour.
+    adaptive_thresholds: bool = False
+    adaptive_threshold_window: int = 252
+    adaptive_q_up: float = 0.70
+    adaptive_q_down: float = 0.30
+    adaptive_floor: float = 0.10
+    ewma_halflife: Optional[float] = None
+    markov_overlay: bool = False
+    bocpd_overlay: bool = False
+    bocpd_expected_run_length: float = 100.0
+    min_dwell_days: int = 1
+
     forward_return_horizons: list = field(default_factory=lambda: [5, 10])
 
     regime_colors: Dict[str, str] = field(default_factory=lambda: {
@@ -215,6 +228,16 @@ class JMSConfig:
             "use_fuzzy": self.use_fuzzy,
             "fuzzy_trend_range": self.fuzzy_trend_range,
             "fuzzy_vol_range": self.fuzzy_vol_range,
+            "adaptive_thresholds": self.adaptive_thresholds,
+            "adaptive_threshold_window": self.adaptive_threshold_window,
+            "adaptive_q_up": self.adaptive_q_up,
+            "adaptive_q_down": self.adaptive_q_down,
+            "adaptive_floor": self.adaptive_floor,
+            "ewma_halflife": self.ewma_halflife,
+            "markov_overlay": self.markov_overlay,
+            "bocpd_overlay": self.bocpd_overlay,
+            "bocpd_expected_run_length": self.bocpd_expected_run_length,
+            "min_dwell_days": self.min_dwell_days,
             "forward_return_horizons": self.forward_return_horizons,
             "regime_colors": self.regime_colors,
             "regime_names": self.regime_names,

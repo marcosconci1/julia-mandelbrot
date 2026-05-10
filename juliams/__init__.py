@@ -191,52 +191,138 @@ class JuliaMandelbrotSystem:
         
         return self.df
     
-    def classify_regimes(self, use_fuzzy: bool = True) -> pd.DataFrame:
+    def classify_regimes(
+        self,
+        use_fuzzy: bool = True,
+        *,
+        adaptive_thresholds: Optional[bool] = None,
+        ewma_halflife: Optional[float] = None,
+        markov_overlay: Optional[bool] = None,
+        bocpd_overlay: Optional[bool] = None,
+        min_dwell_days: Optional[int] = None,
+    ) -> pd.DataFrame:
         """
         Classify market regimes using crisp or fuzzy logic.
-        
-        Parameters:
-        -----------
-        use_fuzzy : bool
-            Whether to use fuzzy logic classification
-            
-        Returns:
-        --------
-        pd.DataFrame : DataFrame with regime classifications
+
+        Always writes the legacy ``regime`` column from the
+        :class:`RegimeClassifier`. Optionally appends additional columns
+        from the adaptive overlays (Phase 1-3 work). All overlays are
+        opt-in: when their flags are unset the output is byte-identical
+        to the pre-adaptive behaviour.
+
+        Parameters
+        ----------
+        use_fuzzy
+            Run the existing fuzzy classifier and store its outputs.
+        adaptive_thresholds
+            Add ``regime_adaptive`` from rolling-quantile thresholds on
+            an EWMA-normalised trend signal. Defaults to
+            ``self.config.adaptive_thresholds``.
+        ewma_halflife
+            Add ``trend_strength_ewma`` column with the given halflife.
+            Defaults to ``self.config.ewma_halflife`` (None = off).
+        markov_overlay
+            Add ``markov_prob_high`` (filtered probabilities) and
+            ``markov_state`` columns. Defaults to
+            ``self.config.markov_overlay``.
+        bocpd_overlay
+            Add ``bocpd_run_length`` and ``bocpd_change_prob`` columns.
+            Defaults to ``self.config.bocpd_overlay``.
+        min_dwell_days
+            When > 1 and ``markov_overlay`` is enabled, enforce a
+            minimum dwell time on the Markov state labels to suppress
+            spurious flips. Defaults to ``self.config.min_dwell_days``.
         """
         if self.df is None:
             raise ValueError("No data loaded. Call fetch_data() first.")
-        
+
         if 'trend_strength' not in self.df.columns:
             self.compute_features()
-        
-        # Crisp classification
+
+        # Resolve effective flags: per-call kwarg overrides config; both
+        # may be missing in which case we fall back to defaults.
+        cfg = self.config
+        adaptive_on = (
+            adaptive_thresholds
+            if adaptive_thresholds is not None
+            else getattr(cfg, "adaptive_thresholds", False)
+        )
+        ewma_hl = (
+            ewma_halflife
+            if ewma_halflife is not None
+            else getattr(cfg, "ewma_halflife", None)
+        )
+        markov_on = (
+            markov_overlay
+            if markov_overlay is not None
+            else getattr(cfg, "markov_overlay", False)
+        )
+        bocpd_on = (
+            bocpd_overlay
+            if bocpd_overlay is not None
+            else getattr(cfg, "bocpd_overlay", False)
+        )
+        dwell = (
+            min_dwell_days
+            if min_dwell_days is not None
+            else getattr(cfg, "min_dwell_days", 1)
+        )
+
+        # Crisp classification (legacy, unchanged)
         classifier = RegimeClassifier(
-            trend_threshold_up=self.config.trend_threshold_up,
-            trend_threshold_down=self.config.trend_threshold_down,
-            volatility_threshold=self.config.volatility_percentile
+            trend_threshold_up=cfg.trend_threshold_up,
+            trend_threshold_down=cfg.trend_threshold_down,
+            volatility_threshold=cfg.volatility_percentile
         )
         self.df = classifier.classify(self.df)
-        
-        # Fuzzy classification if requested
+
+        # Fuzzy classification if requested (legacy, unchanged)
         if use_fuzzy:
             try:
                 from .regimes.fuzzy import compute_fuzzy_features
                 self.df = compute_fuzzy_features(self.df, self.config.to_dict())
-                
-                # Store latest fuzzy probabilities
-                fuzzy_cols = [col for col in self.df.columns if col.startswith('fuzzy_') and 
+
+                fuzzy_cols = [col for col in self.df.columns if col.startswith('fuzzy_') and
                             col not in ['fuzzy_primary_regime', 'fuzzy_confidence', 'fuzzy_entropy']]
                 if fuzzy_cols:
                     self.fuzzy_probabilities = {
-                        col.replace('fuzzy_', ''): self.df[col].iloc[-1] 
+                        col.replace('fuzzy_', ''): self.df[col].iloc[-1]
                         for col in fuzzy_cols
                     }
-                
+
             except ImportError:
                 print("Warning: scikit-fuzzy not available. Using crisp classification only.")
                 use_fuzzy = False
-        
+
+        # Adaptive overlays (opt-in, additive)
+        from .regimes.overlays import (
+            apply_adaptive_threshold_overlay,
+            apply_bocpd_overlay,
+            apply_ewma_overlay,
+            apply_markov_overlay,
+        )
+
+        if adaptive_on:
+            self.df = apply_adaptive_threshold_overlay(
+                self.df,
+                window=getattr(cfg, "adaptive_threshold_window", 252),
+                q_up=getattr(cfg, "adaptive_q_up", 0.70),
+                q_down=getattr(cfg, "adaptive_q_down", 0.30),
+                floor=getattr(cfg, "adaptive_floor", 0.10),
+            )
+
+        if ewma_hl is not None:
+            self.df = apply_ewma_overlay(self.df, halflife=float(ewma_hl))
+
+        if markov_on:
+            self.df = apply_markov_overlay(self.df, min_dwell=dwell)
+
+        if bocpd_on:
+            self.df = apply_bocpd_overlay(
+                self.df,
+                expected_run_length=getattr(cfg, "bocpd_expected_run_length", 100.0),
+            )
+
         return self.df
     
     def analyze_regimes(self) -> Dict[str, Any]:
