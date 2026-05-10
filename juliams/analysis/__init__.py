@@ -36,6 +36,15 @@ from .diagnostics import (
     summarize_group_narratives,
     summarize_variant_comparison_by_group,
 )
+from .group_rebound import (
+    DEFAULT_ASSET_GROUPS,
+    DEFAULT_GROUP_OVERLAY_PROFILES,
+    ReboundOverlayProfile,
+    asset_group_for_symbol,
+    compare_group_aware_rebound,
+    run_walk_forward_group_rebound,
+    summarize_group_rebound_results,
+)
 
 __all__ = [
     'compute_forward_returns',
@@ -61,4 +70,11 @@ __all__ = [
     'measure_bullish_turn_lag',
     'summarize_group_narratives',
     'summarize_variant_comparison_by_group',
+    'DEFAULT_ASSET_GROUPS',
+    'DEFAULT_GROUP_OVERLAY_PROFILES',
+    'ReboundOverlayProfile',
+    'asset_group_for_symbol',
+    'compare_group_aware_rebound',
+    'run_walk_forward_group_rebound',
+    'summarize_group_rebound_results',
 ]
