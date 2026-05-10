@@ -25,6 +25,17 @@ from .backtest import (
     build_backtest_narrative,
     regime_exposure,
 )
+from .diagnostics import (
+    DEFAULT_DIAGNOSTIC_EXPOSURE_MAPS,
+    backtest_rebound_overlay,
+    compare_exposure_maps,
+    compare_rebound_overlay,
+    compute_rebound_signal,
+    compute_regime_forward_diagnostics,
+    measure_bullish_turn_lag,
+    summarize_group_narratives,
+    summarize_variant_comparison_by_group,
+)
 
 __all__ = [
     'compute_forward_returns',
@@ -41,4 +52,13 @@ __all__ = [
     'backtest_regime_strategy',
     'build_backtest_narrative',
     'regime_exposure',
+    'DEFAULT_DIAGNOSTIC_EXPOSURE_MAPS',
+    'backtest_rebound_overlay',
+    'compare_exposure_maps',
+    'compare_rebound_overlay',
+    'compute_rebound_signal',
+    'compute_regime_forward_diagnostics',
+    'measure_bullish_turn_lag',
+    'summarize_group_narratives',
+    'summarize_variant_comparison_by_group',
 ]
