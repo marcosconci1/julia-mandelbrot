@@ -11,6 +11,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _get_first_valid_price(price_series: pd.Series) -> float:
+    """
+    Get the first valid (non-NaN, positive) price from a series.
+
+    Args:
+        price_series: Series of price values
+
+    Returns:
+        First valid positive price
+
+    Raises:
+        ValueError: If no valid price is found
+    """
+    valid_prices = price_series.dropna()
+    valid_prices = valid_prices[valid_prices > 0]
+
+    if len(valid_prices) == 0:
+        raise ValueError("No valid positive prices found in the series")
+
+    return float(valid_prices.iloc[0])
+
+
 def create_fractal_mask(hurst: pd.Series,
                         threshold: float = 0.55,
                         smooth: bool = True,
@@ -35,8 +57,8 @@ def create_fractal_mask(hurst: pd.Series,
     
     if smooth:
         # Smooth the mask to avoid rapid on/off switching
-        # Use a rolling mean and threshold at 0.5
-        smoothed = mask.rolling(window=smooth_window, min_periods=1, center=True).mean()
+        # Use a trailing rolling mean and threshold at 0.5 to avoid look-ahead.
+        smoothed = mask.rolling(window=smooth_window, min_periods=1).mean()
         mask = (smoothed >= 0.5).astype(float)
     
     return mask
@@ -79,11 +101,11 @@ def compute_fractal_filtered_price(df: pd.DataFrame,
             log_returns = df['log_return']
         
         # Apply mask to returns
-        filtered_returns = mask * log_returns
+        filtered_returns = mask * log_returns.fillna(0)
         
         # Reconstruct price from filtered returns
         # Start from the first valid price
-        initial_price = df[price_col].iloc[0]
+        initial_price = _get_first_valid_price(df[price_col])
         filtered_log_price = filtered_returns.cumsum() + np.log(initial_price)
         filtered_price = np.exp(filtered_log_price)
         
@@ -106,10 +128,10 @@ def compute_fractal_filtered_price(df: pd.DataFrame,
         
         # Use Hurst as weight (normalized to [0, 1])
         hurst_normalized = df[hurst_col].clip(0, 1)
-        weighted_returns = hurst_normalized * log_returns
+        weighted_returns = hurst_normalized * log_returns.fillna(0)
         
         # Reconstruct price
-        initial_price = df[price_col].iloc[0]
+        initial_price = _get_first_valid_price(df[price_col])
         filtered_log_price = weighted_returns.cumsum() + np.log(initial_price)
         filtered_price = np.exp(filtered_log_price)
     
@@ -237,11 +259,15 @@ def compute_fractal_features(df: pd.DataFrame,
     )
     
     # Compute fractal-filtered price
-    df['fractal_price'] = compute_fractal_filtered_price(
-        df,
-        threshold=config.get('hurst_threshold', 0.55),
-        method=config.get('fractal_filter_method', 'accumulate')
-    )
+    try:
+        df['fractal_price'] = compute_fractal_filtered_price(
+            df,
+            threshold=config.get('hurst_threshold', 0.55),
+            method=config.get('fractal_filter_method', 'accumulate')
+        )
+    except ValueError as e:
+        logger.warning(f"Failed to compute fractal filtered price: {e}")
+        df['fractal_price'] = df['Close']
     
     # Compute fractal-filtered returns
     df['fractal_returns'] = compute_fractal_filtered_returns(

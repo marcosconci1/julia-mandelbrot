@@ -11,18 +11,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _bounded_min_periods(window: int, desired: int) -> int:
+    """Keep rolling min_periods valid for small test or intraday windows."""
+    return min(window, max(1, desired))
+
+
 def compute_volatility(df: pd.DataFrame,
                       window: int = 20,
                       method: str = 'std',
-                      annualize: bool = False) -> pd.Series:
+                      annualize: bool = False,
+                      periods_per_year: int = 252) -> pd.Series:
     """
     Compute rolling volatility using various methods.
     
     Args:
         df: DataFrame with price data
         window: Rolling window size in periods
-        method: Method for volatility calculation ('std', 'ewm', 'parkinson')
+        method: Method for volatility calculation ('std', 'ewm', 'parkinson', 'realized')
         annualize: Whether to annualize the volatility (assumes 252 trading days)
+        periods_per_year: Number of periods per year for annualization
     
     Returns:
         Series with volatility values
@@ -53,15 +60,66 @@ def compute_volatility(df: pd.DataFrame,
         else:
             logger.warning("High/Low columns not found, falling back to standard deviation")
             volatility = log_returns.rolling(window=window, min_periods=max(2, window//2)).std()
+
+    elif method == 'realized':
+        volatility = compute_realized_volatility(
+            df,
+            window=window,
+            return_col='log_return',
+            annualize=annualize,
+            periods_per_year=periods_per_year,
+        )
+        return volatility
     
     else:
         raise ValueError(f"Unknown volatility method: {method}")
     
     # Annualize if requested
     if annualize:
-        volatility = volatility * np.sqrt(252)
+        volatility = volatility * np.sqrt(periods_per_year)
     
     return volatility
+
+
+def compute_realized_variance(df: pd.DataFrame,
+                             window: int = 20,
+                             return_col: str = 'log_return') -> pd.Series:
+    """
+    Compute rolling realized variance as quadratic variation.
+
+    For high-frequency data, summing squared log returns over the target
+    interval is the standard realized-variance estimator. For daily data this
+    remains a rolling quadratic-variation diagnostic, not a substitute for
+    intraday realized volatility.
+    """
+    if return_col in df.columns:
+        log_returns = df[return_col]
+    else:
+        if 'Close' not in df.columns:
+            raise ValueError("DataFrame must contain Close or log_return data")
+        log_returns = np.log(df['Close']).diff()
+
+    return log_returns.pow(2).rolling(
+        window=window,
+        min_periods=max(2, window // 2)
+    ).sum()
+
+
+def compute_realized_volatility(df: pd.DataFrame,
+                               window: int = 20,
+                               return_col: str = 'log_return',
+                               annualize: bool = False,
+                               periods_per_year: int = 252) -> pd.Series:
+    """
+    Compute rolling realized volatility from realized variance.
+    """
+    realized_variance = compute_realized_variance(df, window=window, return_col=return_col)
+    realized_volatility = np.sqrt(realized_variance)
+
+    if annualize:
+        realized_volatility = realized_volatility * np.sqrt(periods_per_year / window)
+
+    return realized_volatility
 
 
 def compute_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
@@ -87,8 +145,8 @@ def compute_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
     
     true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     
-    # Calculate ATR as exponential moving average of True Range
-    atr = true_range.ewm(span=window, min_periods=1).mean()
+    # Wilder's ATR smoothing uses alpha=1/window, not the EMA span formula.
+    atr = true_range.ewm(alpha=1 / window, adjust=False, min_periods=1).mean()
     
     return atr
 
@@ -131,7 +189,9 @@ def compute_volatility_regime(volatility: pd.Series,
     if method == 'percentile':
         # Use percentile of historical volatility
         vol_percentile = compute_volatility_percentile(volatility, lookback=252)
-        regime = vol_percentile.apply(lambda x: 'High' if x > threshold else 'Low')
+        regime = vol_percentile.apply(
+            lambda x: 'Unknown' if pd.isna(x) else ('High' if x > threshold else 'Low')
+        )
     
     elif method == 'absolute':
         # Use absolute threshold
@@ -139,7 +199,10 @@ def compute_volatility_regime(volatility: pd.Series,
     
     elif method == 'adaptive':
         # Use adaptive baseline (rolling mean)
-        baseline = volatility.rolling(window=baseline_window, min_periods=max(20, baseline_window//5)).mean()
+        baseline = volatility.rolling(
+            window=baseline_window,
+            min_periods=_bounded_min_periods(baseline_window, max(20, baseline_window // 5))
+        ).mean()
         regime = pd.Series(
             np.where(volatility > baseline * (1 + (threshold - 0.5)), 'High', 'Low'),
             index=volatility.index
@@ -169,6 +232,8 @@ def compute_volatility_features(df: pd.DataFrame,
     if config is None:
         config = {
             'volatility_window': 20,
+            'volatility_method': 'std',
+            'volatility_annualize': False,
             'volatility_baseline_window': 100,
             'volatility_percentile': 0.67,
             'atr_window': 14
@@ -182,11 +247,26 @@ def compute_volatility_features(df: pd.DataFrame,
             df['log_price'] = np.log(df['Close'])
         df['log_return'] = df['log_price'].diff()
     
-    # Compute basic volatility (realized volatility)
+    volatility_window = config.get('volatility_window', 20)
+    volatility_method = config.get('volatility_method', 'std')
+    volatility_annualize = config.get('volatility_annualize', False)
+
+    df['realized_variance'] = compute_realized_variance(
+        df,
+        window=volatility_window,
+    )
+    df['realized_volatility'] = compute_realized_volatility(
+        df,
+        window=volatility_window,
+        annualize=volatility_annualize,
+    )
+
+    # Compute selected volatility measure for regime classification
     df['volatility'] = compute_volatility(
         df,
-        window=config.get('volatility_window', 20),
-        method='std'
+        window=volatility_window,
+        method=volatility_method,
+        annualize=volatility_annualize,
     )
     
     # Compute ATR if OHLC data is available
@@ -205,7 +285,7 @@ def compute_volatility_features(df: pd.DataFrame,
     baseline_window = config.get('volatility_baseline_window', 100)
     df['volatility_baseline'] = df['volatility'].rolling(
         window=baseline_window,
-        min_periods=max(20, baseline_window//5)
+        min_periods=_bounded_min_periods(baseline_window, max(20, baseline_window // 5))
     ).mean()
     
     # Classify volatility regime
@@ -225,7 +305,7 @@ def compute_volatility_features(df: pd.DataFrame,
     ).std()
     
     # Volatility change rate
-    df['volatility_change'] = df['volatility'].pct_change()
+    df['volatility_change'] = df['volatility'].pct_change(fill_method=None)
     
     # Volatility z-score (standardized volatility)
     vol_mean = df['volatility'].rolling(window=252, min_periods=20).mean()

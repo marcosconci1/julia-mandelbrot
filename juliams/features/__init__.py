@@ -11,19 +11,31 @@ from .trend import (
 )
 from .volatility import (
     compute_volatility, 
+    compute_realized_variance,
+    compute_realized_volatility,
     compute_atr, 
     compute_volatility_regime,
     compute_volatility_features
 )
 from .hurst import (
     compute_rolling_hurst,
+    compute_rolling_modified_rs,
     compute_hurst_features,
-    classify_hurst_regime
+    classify_hurst_regime,
+    classify_modified_rs,
+    modified_rescaled_range_statistic
 )
 from .fractal import (
     compute_fractal_filtered_price,
     compute_fractal_features,
     create_fractal_mask
+)
+from .tail import (
+    compute_tail_risk_features,
+    conditional_value_at_risk,
+    hill_tail_index,
+    value_at_risk,
+    classify_survival_regime
 )
 
 __all__ = [
@@ -32,13 +44,23 @@ __all__ = [
     'compute_trend_features',
     'classify_trend_regime',
     'compute_volatility',
+    'compute_realized_variance',
+    'compute_realized_volatility',
     'compute_atr',
     'compute_volatility_regime',
     'compute_volatility_features',
     'compute_rolling_hurst',
+    'compute_rolling_modified_rs',
     'compute_hurst_features',
     'classify_hurst_regime',
+    'classify_modified_rs',
+    'modified_rescaled_range_statistic',
     'compute_fractal_filtered_price',
     'compute_fractal_features',
-    'create_fractal_mask'
+    'create_fractal_mask',
+    'compute_tail_risk_features',
+    'conditional_value_at_risk',
+    'hill_tail_index',
+    'value_at_risk',
+    'classify_survival_regime'
 ]

@@ -11,6 +11,12 @@ import warnings
 
 logger = logging.getLogger(__name__)
 
+LO_MODIFIED_RS_CRITICAL_VALUES = {
+    0.90: (0.861, 1.747),
+    0.95: (0.809, 1.862),
+    0.99: (0.721, 2.098),
+}
+
 # Try to import nolds library for Hurst calculation
 try:
     import nolds
@@ -257,6 +263,115 @@ def classify_hurst_regime(hurst: Union[float, pd.Series],
         return classify_single(hurst)
 
 
+def modified_rescaled_range_statistic(series: Union[np.ndarray, pd.Series],
+                                      lags: Optional[int] = None,
+                                      min_periods: int = 10) -> float:
+    """
+    Compute Lo's modified R/S statistic.
+
+    The statistic replaces the classic R/S denominator with a Bartlett-weighted
+    long-run variance estimate, making the diagnostic less likely to mistake
+    short-range autocorrelation for long-range dependence.
+    """
+    if isinstance(series, pd.Series):
+        values = series.to_numpy(dtype=float)
+    else:
+        values = np.asarray(series, dtype=float)
+
+    values = values[np.isfinite(values)]
+    n = len(values)
+    if n < min_periods:
+        return np.nan
+
+    centered = values - np.mean(values)
+    cumulative_deviation = np.cumsum(centered)
+    deviation_range = cumulative_deviation.max() - cumulative_deviation.min()
+
+    if lags is None:
+        lags = int(np.floor(n ** (1 / 3)))
+    lags = max(0, min(int(lags), n - 1))
+
+    long_run_variance = np.mean(centered ** 2)
+    for lag in range(1, lags + 1):
+        autocovariance = np.sum(centered[lag:] * centered[:-lag]) / n
+        weight = 1 - lag / (lags + 1)
+        long_run_variance += 2 * weight * autocovariance
+
+    if long_run_variance <= 0:
+        return np.nan
+
+    return deviation_range / (np.sqrt(long_run_variance) * np.sqrt(n))
+
+
+def classify_modified_rs(statistic: Union[float, pd.Series],
+                         confidence_level: float = 0.95) -> Union[str, pd.Series]:
+    """
+    Classify Lo modified R/S output against short-memory critical values.
+    """
+    if confidence_level not in LO_MODIFIED_RS_CRITICAL_VALUES:
+        raise ValueError("confidence_level must be one of: 0.90, 0.95, 0.99")
+
+    lower, upper = LO_MODIFIED_RS_CRITICAL_VALUES[confidence_level]
+
+    def classify_single(value):
+        if pd.isna(value):
+            return 'Unknown'
+        if value > upper:
+            return 'Long-Memory'
+        if value < lower:
+            return 'Anti-Persistent'
+        return 'Short-Memory'
+
+    if isinstance(statistic, pd.Series):
+        return statistic.apply(classify_single)
+    return classify_single(statistic)
+
+
+def compute_rolling_modified_rs(df: pd.DataFrame,
+                                window: int = 100,
+                                lags: Optional[int] = None,
+                                return_col: str = 'log_return',
+                                price_col: str = 'Close') -> pd.Series:
+    """
+    Compute rolling Lo modified R/S statistic on returns.
+    """
+    if return_col in df.columns:
+        returns = df[return_col]
+    else:
+        if price_col not in df.columns:
+            raise ValueError(f"Column '{price_col}' not found in DataFrame")
+        returns = np.log(df[price_col]).diff()
+
+    return returns.rolling(window=window, min_periods=max(20, window // 2)).apply(
+        lambda values: modified_rescaled_range_statistic(values, lags=lags),
+        raw=True,
+    )
+
+
+def classify_confirmed_hurst_regime(hurst_regime: pd.Series,
+                                    modified_rs_regime: pd.Series) -> pd.Series:
+    """
+    Confirm Hurst regimes with Lo's modified R/S diagnostic.
+
+    Classic Hurst bands remain available in `hurst_regime`; this conservative
+    classifier avoids claiming long memory when the modified R/S statistic is
+    consistent with short-memory behavior.
+    """
+    def classify_single(hurst_value, rs_value):
+        if hurst_value == 'Unknown' or rs_value == 'Unknown':
+            return 'Unknown'
+        if hurst_value == 'Trending':
+            return 'Trending' if rs_value == 'Long-Memory' else 'Short-Memory'
+        if hurst_value == 'Mean-Reverting':
+            return 'Mean-Reverting' if rs_value == 'Anti-Persistent' else 'Short-Memory'
+        return hurst_value
+
+    return pd.Series(
+        [classify_single(hurst_value, rs_value) for hurst_value, rs_value in zip(hurst_regime, modified_rs_regime)],
+        index=hurst_regime.index,
+    )
+
+
 def compute_hurst_features(df: pd.DataFrame,
                           config: Optional[dict] = None) -> pd.DataFrame:
     """
@@ -273,7 +388,9 @@ def compute_hurst_features(df: pd.DataFrame,
         config = {
             'hurst_window': 100,
             'hurst_indeterminate_range': (0.45, 0.55),
-            'hurst_method': 'rs'
+            'hurst_method': 'rs',
+            'hurst_confidence_level': 0.95,
+            'lo_modified_rs_lags': None,
         }
     
     df = df.copy()
@@ -289,6 +406,22 @@ def compute_hurst_features(df: pd.DataFrame,
     df['hurst_regime'] = classify_hurst_regime(
         df['hurst'],
         indeterminate_range=config.get('hurst_indeterminate_range', (0.45, 0.55))
+    )
+
+    # Lo modified R/S diagnostic, computed on returns to avoid overstating
+    # long-memory claims that can be explained by short-range dependence.
+    df['lo_modified_rs'] = compute_rolling_modified_rs(
+        df,
+        window=config.get('hurst_window', 100),
+        lags=config.get('lo_modified_rs_lags'),
+    )
+    df['lo_memory_regime'] = classify_modified_rs(
+        df['lo_modified_rs'],
+        confidence_level=config.get('hurst_confidence_level', 0.95),
+    )
+    df['hurst_confirmed_regime'] = classify_confirmed_hurst_regime(
+        df['hurst_regime'],
+        df['lo_memory_regime'],
     )
     
     # Additional Hurst metrics
@@ -373,6 +506,11 @@ def get_hurst_summary(df: pd.DataFrame) -> dict:
             if regime != 'Unknown'
         }
         summary['current_hurst_regime'] = df['hurst_regime'].iloc[-1] if len(df) > 0 else None
+
+    if 'hurst_confirmed_regime' in df.columns and len(df) > 0:
+        summary['current_hurst_confirmed_regime'] = df['hurst_confirmed_regime'].iloc[-1]
+    if 'lo_memory_regime' in df.columns and len(df) > 0:
+        summary['current_lo_memory_regime'] = df['lo_memory_regime'].iloc[-1]
     
     if 'persistence_strength' in df.columns:
         summary['average_persistence'] = df['persistence_strength'].mean()
