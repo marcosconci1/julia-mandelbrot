@@ -18,6 +18,13 @@ from .segments import (
     compute_segment_statistics,
     get_segment_summary
 )
+from .backtest import (
+    DEFAULT_REGIME_EXPOSURE,
+    RegimeBacktestResult,
+    backtest_regime_strategy,
+    build_backtest_narrative,
+    regime_exposure,
+)
 
 __all__ = [
     'compute_forward_returns',
@@ -28,5 +35,10 @@ __all__ = [
     'get_transition_statistics',
     'analyze_regime_segments',
     'compute_segment_statistics',
-    'get_segment_summary'
+    'get_segment_summary',
+    'DEFAULT_REGIME_EXPOSURE',
+    'RegimeBacktestResult',
+    'backtest_regime_strategy',
+    'build_backtest_narrative',
+    'regime_exposure',
 ]
