@@ -239,6 +239,84 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Skip nearby-parameter promotion checks for faster exploratory diagnostics.",
     )
+
+    # ---- Adaptive regime overlays (opt-in; defaults preserve legacy output) ----
+    parser.add_argument(
+        "--adaptive-thresholds",
+        action="store_true",
+        help=(
+            "Add a regime_adaptive column from rolling-quantile thresholds on an "
+            "EWMA-normalised trend signal. Distribution-driven cutoffs replace the "
+            "hardcoded ±0.2 z-score thresholds."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-q-up",
+        type=float,
+        default=0.70,
+        help="Upper quantile for adaptive thresholds (default: 0.70).",
+    )
+    parser.add_argument(
+        "--adaptive-q-down",
+        type=float,
+        default=0.30,
+        help="Lower quantile for adaptive thresholds (default: 0.30).",
+    )
+    parser.add_argument(
+        "--adaptive-floor",
+        type=float,
+        default=0.10,
+        help=(
+            "Absolute floor on adaptive thresholds; prevents flat markets from "
+            "degenerating to constant trigger frequency (default: 0.10)."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-window",
+        type=int,
+        default=252,
+        help="Rolling window length for adaptive quantiles, in trading days (default: 252).",
+    )
+    parser.add_argument(
+        "--ewma-halflife",
+        type=float,
+        default=None,
+        help=(
+            "If set, add a trend_strength_ewma column with this halflife (in days). "
+            "Defaults vary by asset class — see juliams.features.ewma_calibration."
+        ),
+    )
+    parser.add_argument(
+        "--markov-overlay",
+        action="store_true",
+        help=(
+            "Add markov_prob_high and markov_state columns from a 2-state "
+            "Markov-switching variance model fit on log returns."
+        ),
+    )
+    parser.add_argument(
+        "--bocpd-overlay",
+        action="store_true",
+        help=(
+            "Add bocpd_run_length and bocpd_change_prob columns from Bayesian "
+            "online change-point detection."
+        ),
+    )
+    parser.add_argument(
+        "--bocpd-expected-run-length",
+        type=float,
+        default=100.0,
+        help="Mean of the BOCPD geometric run-length prior (default: 100).",
+    )
+    parser.add_argument(
+        "--min-dwell-days",
+        type=int,
+        default=1,
+        help=(
+            "Minimum dwell time for Markov regime labels in days. Suppresses "
+            "spurious flips during structural breaks. 1 = no-op (default)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -292,6 +370,17 @@ def run_analysis(
     source_type: Optional[str] = None,
     use_fuzzy: bool = True,
     horizons: Optional[List[int]] = None,
+    *,
+    adaptive_thresholds: bool = False,
+    adaptive_q_up: float = 0.70,
+    adaptive_q_down: float = 0.30,
+    adaptive_floor: float = 0.10,
+    adaptive_window: int = 252,
+    ewma_halflife: Optional[float] = None,
+    markov_overlay: bool = False,
+    bocpd_overlay: bool = False,
+    bocpd_expected_run_length: float = 100.0,
+    min_dwell_days: int = 1,
 ) -> Dict[str, object]:
     """
     Execute the full analysis pipeline and return collected artefacts.
@@ -339,6 +428,38 @@ def run_analysis(
     else:
         use_fuzzy = False
 
+    # Adaptive overlays (opt-in, additive)
+    overlays_used: List[str] = []
+    if adaptive_thresholds:
+        from juliams.regimes.overlays import apply_adaptive_threshold_overlay
+        df = apply_adaptive_threshold_overlay(
+            df,
+            window=adaptive_window,
+            q_up=adaptive_q_up,
+            q_down=adaptive_q_down,
+            floor=adaptive_floor,
+        )
+        overlays_used.append("adaptive_thresholds")
+
+    if ewma_halflife is not None:
+        from juliams.regimes.overlays import apply_ewma_overlay
+        df = apply_ewma_overlay(df, halflife=float(ewma_halflife))
+        overlays_used.append(f"ewma(halflife={ewma_halflife})")
+
+    if markov_overlay:
+        from juliams.regimes.overlays import apply_markov_overlay
+        df = apply_markov_overlay(df, min_dwell=min_dwell_days)
+        overlays_used.append(
+            f"markov(min_dwell={min_dwell_days})" if min_dwell_days > 1 else "markov"
+        )
+
+    if bocpd_overlay:
+        from juliams.regimes.overlays import apply_bocpd_overlay
+        df = apply_bocpd_overlay(
+            df, expected_run_length=bocpd_expected_run_length
+        )
+        overlays_used.append(f"bocpd(λ={bocpd_expected_run_length})")
+
     # Forward returns & diagnostics
     horizons_to_use = horizons or source_config.get("forward_return_horizons", [5, 10])
     df = compute_forward_returns(df, horizons=horizons_to_use)
@@ -359,6 +480,7 @@ def run_analysis(
         "period": resolved_period,
         "start": resolved_start,
         "end": resolved_end,
+        "overlays_used": overlays_used,
     }
 
 
@@ -634,6 +756,46 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
             print(f"  {regime:20s}: {_format_percentage(probability)}")
         if "fuzzy_confidence" in df.columns:
             print(f"  Confidence:    {_format_percentage(df['fuzzy_confidence'].iloc[-1])}")
+
+    overlays_used = cast(List[str], artefacts.get("overlays_used", []))
+    adaptive_columns = {
+        "regime_adaptive",
+        "trend_strength_ewma",
+        "markov_prob_high",
+        "markov_state",
+        "bocpd_run_length",
+        "bocpd_change_prob",
+    } & set(df.columns)
+    if overlays_used or adaptive_columns:
+        print("\nAdaptive Overlays")
+        print("-" * 72)
+        if overlays_used:
+            print(f"  Active:       {', '.join(overlays_used)}")
+        if "regime_adaptive" in df.columns:
+            print(f"  Adaptive:     {df['regime_adaptive'].iloc[-1]}")
+        if "trend_strength_ewma" in df.columns and pd.notna(
+            df["trend_strength_ewma"].iloc[-1]
+        ):
+            print(
+                f"  Trend (EWMA): {_format_decimal(df['trend_strength_ewma'].iloc[-1], 3)}"
+            )
+        if "markov_state" in df.columns:
+            state = df["markov_state"].iloc[-1]
+            prob = df["markov_prob_high"].iloc[-1] if "markov_prob_high" in df.columns else None
+            prob_str = (
+                f" (P(high)={_format_percentage(prob)})"
+                if prob is not None and pd.notna(prob)
+                else ""
+            )
+            print(f"  Markov:       {state}{prob_str}")
+        if "bocpd_run_length" in df.columns and pd.notna(
+            df["bocpd_run_length"].iloc[-1]
+        ):
+            rl = int(df["bocpd_run_length"].iloc[-1])
+            cp = df["bocpd_change_prob"].iloc[-1]
+            print(
+                f"  BOCPD:        run_length={rl}d change_prob={_format_percentage(cp)}"
+            )
 
     print("\nForward Returns")
     print("-" * 72)
@@ -1015,6 +1177,16 @@ def main() -> None:
             source_type=args.source_type,
             use_fuzzy=not args.no_fuzzy,
             horizons=args.horizons,
+            adaptive_thresholds=args.adaptive_thresholds,
+            adaptive_q_up=args.adaptive_q_up,
+            adaptive_q_down=args.adaptive_q_down,
+            adaptive_floor=args.adaptive_floor,
+            adaptive_window=args.adaptive_window,
+            ewma_halflife=args.ewma_halflife,
+            markov_overlay=args.markov_overlay,
+            bocpd_overlay=args.bocpd_overlay,
+            bocpd_expected_run_length=args.bocpd_expected_run_length,
+            min_dwell_days=args.min_dwell_days,
         )
     except Exception as exc:
         print(f"Error: {exc}")
