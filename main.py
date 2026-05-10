@@ -303,10 +303,35 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--bocpd-method",
+        choices=["standard", "dsm"],
+        default="standard",
+        help=(
+            "BOCPD algorithm: 'standard' (Adams-MacKay 2007 with Gaussian/NIG "
+            "conjugate) or 'dsm' (Diffusion Score Matching, Altamirano-Briol-"
+            "Knoblauch 2023, more robust to fat-tailed financial returns)."
+        ),
+    )
+    parser.add_argument(
         "--bocpd-expected-run-length",
         type=float,
         default=100.0,
         help="Mean of the BOCPD geometric run-length prior (default: 100).",
+    )
+    parser.add_argument(
+        "--bocpd-omega",
+        type=float,
+        default=1.0,
+        help="DSM-BOCPD robustness weight (default: 1.0). Only used with --bocpd-method dsm.",
+    )
+    parser.add_argument(
+        "--bocpd-robustness-bandwidth",
+        type=float,
+        default=3.0,
+        help=(
+            "DSM-BOCPD robustness bandwidth in units of sqrt(varx) "
+            "(default: 3.0). Smaller = more aggressive outlier downweighting."
+        ),
     )
     parser.add_argument(
         "--min-dwell-days",
@@ -379,7 +404,10 @@ def run_analysis(
     ewma_halflife: Optional[float] = None,
     markov_overlay: bool = False,
     bocpd_overlay: bool = False,
+    bocpd_method: str = "standard",
     bocpd_expected_run_length: float = 100.0,
+    bocpd_omega: float = 1.0,
+    bocpd_robustness_bandwidth: float = 3.0,
     min_dwell_days: int = 1,
 ) -> Dict[str, object]:
     """
@@ -456,9 +484,18 @@ def run_analysis(
     if bocpd_overlay:
         from juliams.regimes.overlays import apply_bocpd_overlay
         df = apply_bocpd_overlay(
-            df, expected_run_length=bocpd_expected_run_length
+            df,
+            expected_run_length=bocpd_expected_run_length,
+            method=bocpd_method,
+            omega=bocpd_omega,
+            robustness_bandwidth=bocpd_robustness_bandwidth,
         )
-        overlays_used.append(f"bocpd(λ={bocpd_expected_run_length})")
+        tag = (
+            f"bocpd-dsm(lambda={bocpd_expected_run_length},omega={bocpd_omega})"
+            if bocpd_method == "dsm"
+            else f"bocpd(lambda={bocpd_expected_run_length})"
+        )
+        overlays_used.append(tag)
 
     # Forward returns & diagnostics
     horizons_to_use = horizons or source_config.get("forward_return_horizons", [5, 10])
@@ -1185,7 +1222,10 @@ def main() -> None:
             ewma_halflife=args.ewma_halflife,
             markov_overlay=args.markov_overlay,
             bocpd_overlay=args.bocpd_overlay,
+            bocpd_method=args.bocpd_method,
             bocpd_expected_run_length=args.bocpd_expected_run_length,
+            bocpd_omega=args.bocpd_omega,
+            bocpd_robustness_bandwidth=args.bocpd_robustness_bandwidth,
             min_dwell_days=args.min_dwell_days,
         )
     except Exception as exc:

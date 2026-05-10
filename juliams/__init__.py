@@ -199,6 +199,7 @@ class JuliaMandelbrotSystem:
         ewma_halflife: Optional[float] = None,
         markov_overlay: Optional[bool] = None,
         bocpd_overlay: Optional[bool] = None,
+        bocpd_method: Optional[str] = None,
         min_dwell_days: Optional[int] = None,
     ) -> pd.DataFrame:
         """
@@ -262,6 +263,11 @@ class JuliaMandelbrotSystem:
             if bocpd_overlay is not None
             else getattr(cfg, "bocpd_overlay", False)
         )
+        bocpd_method_eff = (
+            bocpd_method
+            if bocpd_method is not None
+            else getattr(cfg, "bocpd_method", "standard")
+        )
         dwell = (
             min_dwell_days
             if min_dwell_days is not None
@@ -321,6 +327,11 @@ class JuliaMandelbrotSystem:
             self.df = apply_bocpd_overlay(
                 self.df,
                 expected_run_length=getattr(cfg, "bocpd_expected_run_length", 100.0),
+                method=bocpd_method_eff,
+                df_cap=getattr(cfg, "bocpd_df_cap", None),
+                omega=getattr(cfg, "bocpd_omega", 1.0),
+                robustness_bandwidth=getattr(cfg, "bocpd_robustness_bandwidth", 3.0),
+                varx=getattr(cfg, "bocpd_varx", None),
             )
 
         return self.df

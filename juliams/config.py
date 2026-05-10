@@ -110,6 +110,11 @@ class JMSConfig:
     markov_overlay: bool = False
     bocpd_overlay: bool = False
     bocpd_expected_run_length: float = 100.0
+    bocpd_method: str = "standard"
+    bocpd_df_cap: Optional[float] = None
+    bocpd_omega: float = 1.0
+    bocpd_robustness_bandwidth: float = 3.0
+    bocpd_varx: Optional[float] = None
     min_dwell_days: int = 1
 
     forward_return_horizons: list = field(default_factory=lambda: [5, 10])
@@ -237,6 +242,11 @@ class JMSConfig:
             "markov_overlay": self.markov_overlay,
             "bocpd_overlay": self.bocpd_overlay,
             "bocpd_expected_run_length": self.bocpd_expected_run_length,
+            "bocpd_method": self.bocpd_method,
+            "bocpd_df_cap": self.bocpd_df_cap,
+            "bocpd_omega": self.bocpd_omega,
+            "bocpd_robustness_bandwidth": self.bocpd_robustness_bandwidth,
+            "bocpd_varx": self.bocpd_varx,
             "min_dwell_days": self.min_dwell_days,
             "forward_return_horizons": self.forward_return_horizons,
             "regime_colors": self.regime_colors,

@@ -118,9 +118,34 @@ def apply_bocpd_overlay(
     df: pd.DataFrame,
     expected_run_length: float = 100.0,
     return_col: str = "log_return",
+    method: str = "standard",
+    df_cap: Optional[float] = None,
+    varx: Optional[float] = None,
+    omega: float = 1.0,
+    robustness_bandwidth: float = 3.0,
 ) -> pd.DataFrame:
-    """Add ``bocpd_run_length`` and ``bocpd_change_prob`` columns."""
-    from juliams.regimes.bocpd import detect_change_points_bocpd
+    """Add ``bocpd_run_length`` and ``bocpd_change_prob`` columns.
+
+    Parameters
+    ----------
+    method
+        ``"standard"`` (default) uses the Adams-MacKay (2007) BOCPD with
+        Gaussian / NIG conjugate. Pass ``df_cap`` to cap predictive
+        Student-t tails (Sellier & Dellaportas 2023). ``"dsm"`` uses
+        the Diffusion Score Matching BOCPD of Altamirano-Briol-Knoblauch
+        (ICML 2023), which is more robust to heavy-tailed returns.
+    varx
+        Observation noise variance for DSM. If None, defaults to the
+        sample variance of the returns series.
+    omega, robustness_bandwidth
+        DSM hyperparameters; see ``juliams.regimes.dsm_bocpd``.
+    df_cap
+        Standard-BOCPD-only: Student-t degrees-of-freedom cap.
+    """
+    if method not in {"standard", "dsm"}:
+        raise ValueError(
+            f"Unknown bocpd method {method!r}; choose 'standard' or 'dsm'."
+        )
 
     if return_col not in df.columns:
         if "Close" in df.columns:
@@ -133,9 +158,28 @@ def apply_bocpd_overlay(
     else:
         returns = df[return_col]
 
-    res = detect_change_points_bocpd(
-        returns, expected_run_length=expected_run_length
-    )
+    if method == "standard":
+        from juliams.regimes.bocpd import detect_change_points_bocpd
+        res = detect_change_points_bocpd(
+            returns,
+            expected_run_length=expected_run_length,
+            df_cap=df_cap,
+        )
+    else:
+        from juliams.regimes.dsm_bocpd import detect_change_points_dsm_bocpd
+        # Default varx to the sample variance of the clean returns.
+        if varx is None:
+            varx = float(returns.dropna().var())
+            if varx <= 0:
+                varx = 1e-8
+        res = detect_change_points_dsm_bocpd(
+            returns,
+            expected_run_length=expected_run_length,
+            varx=varx,
+            omega=omega,
+            robustness_bandwidth=robustness_bandwidth,
+        )
+
     df = df.copy()
     df["bocpd_run_length"] = res.map_run_length
     df["bocpd_change_prob"] = res.change_probability
