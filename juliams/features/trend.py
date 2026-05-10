@@ -121,6 +121,50 @@ def compute_trend_strength(df: pd.DataFrame,
     return trend_strength
 
 
+def compute_ewma_trend_strength(
+    df: pd.DataFrame,
+    window: int = 20,
+    halflife: float = 20.0,
+    price_col: str = "Close",
+    min_vol: float = 1e-8,
+) -> pd.Series:
+    """Trend strength normalised by EWMA log-return std rather than rolling std.
+
+    Motivation: a fixed rolling window weights every observation in the
+    window equally and ignores everything before it, so it reacts slowly
+    to vol-regime shifts and then "forgets" them abruptly when the shock
+    leaves the window. EWMA gives geometrically decaying weights — the
+    standard formulation in J.P. Morgan RiskMetrics (1996) with λ ≈ 0.94
+    for daily data, equivalent to a half-life of ~74 days. Smaller
+    half-lives react faster.
+
+    The slope numerator stays the rolling OLS slope; only the
+    denominator changes. This keeps the intuition of trend_strength as
+    "how many vol units per day is price drifting" while making the
+    "vol unit" itself adaptive.
+
+    Parameters
+    ----------
+    halflife
+        EWMA half-life in observations. Default 20 matches the existing
+        rolling-window length so substitution is apples-to-apples.
+    """
+    slope = compute_rolling_ols_slope(df, window, price_col)
+
+    if "log_return" in df.columns:
+        log_return = df["log_return"]
+    else:
+        if "log_price" in df.columns:
+            log_price = df["log_price"]
+        else:
+            log_price = np.log(df[price_col])
+        log_return = log_price.diff()
+
+    ewma_vol = log_return.ewm(halflife=halflife, adjust=False).std()
+    trend_strength = slope / np.maximum(ewma_vol, min_vol)
+    return trend_strength.replace([np.inf, -np.inf], np.nan)
+
+
 def classify_trend_regime(trend_strength: Union[float, pd.Series],
                          threshold_up: float = 0.2,
                          threshold_down: float = -0.2) -> Union[str, pd.Series]:

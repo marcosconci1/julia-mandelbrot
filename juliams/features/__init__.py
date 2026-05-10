@@ -4,7 +4,8 @@ Includes trend, volatility, Hurst exponent, and fractal analysis.
 """
 
 from .trend import (
-    compute_trend_strength, 
+    compute_trend_strength,
+    compute_ewma_trend_strength,
     compute_rolling_ols_slope,
     compute_trend_features,
     classify_trend_regime
@@ -40,6 +41,7 @@ from .tail import (
 
 __all__ = [
     'compute_trend_strength',
+    'compute_ewma_trend_strength',
     'compute_rolling_ols_slope',
     'compute_trend_features',
     'classify_trend_regime',
