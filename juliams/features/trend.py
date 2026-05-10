@@ -134,9 +134,14 @@ def compute_ewma_trend_strength(
     window equally and ignores everything before it, so it reacts slowly
     to vol-regime shifts and then "forgets" them abruptly when the shock
     leaves the window. EWMA gives geometrically decaying weights — the
-    standard formulation in J.P. Morgan RiskMetrics (1996) with λ ≈ 0.94
-    for daily data, equivalent to a half-life of ~74 days. Smaller
-    half-lives react faster.
+    classical formulation in J.P. Morgan RiskMetrics (1996) used
+    λ ≈ 0.94 for daily data (~74 day half-life), but more recent work
+    (Caporin & Lillo 2023, *Quantitative Finance*; "Optimal decay
+    parameter in EWMA", arXiv:2105.14382) shows λ ≈ 0.94 is suboptimal
+    across asset classes — equities prefer ~λ=0.97 (halflife ~25),
+    crypto closer to RiskMetrics-original. See
+    ``juliams.features.ewma_calibration`` for tunable per-asset
+    defaults.
 
     The slope numerator stays the rolling OLS slope; only the
     denominator changes. This keeps the intuition of trend_strength as

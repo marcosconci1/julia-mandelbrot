@@ -11,6 +11,10 @@ References
   Investing" — empirical use of distribution-driven trend cutoffs.
 - Moskowitz, Ooi, Pedersen (2012), "Time Series Momentum" — sign-of-z
   as the canonical signal, motivating distribution-aware refinements.
+- Wang & Lin (2020), "Regime-Switching Factor Investing with HMMs",
+  *J. Risk and Financial Management* 13(12):311 — recent confirmation
+  that distribution-aware regime cutoffs remain the default in
+  peer-reviewed factor research post-2020.
 
 Design notes
 ------------

@@ -19,13 +19,32 @@ Critical implementation details
 - **Label switching**: across refits the model may swap which state it
   calls "0" vs "1". We canonicalise by reordering states so state 0 has
   the lower estimated variance ("calm") and state 1 the higher
-  ("turbulent"). This is the standard fix recommended in Hamilton (1989).
+  ("turbulent"). For K=2 variance-only models this is the standard fix
+  (variance-sort); for K≥3 use the ECR algorithm (Papastamoulis 2016).
 - **Smoothed vs filtered probs**: we expose smoothed (Kim 1994) by
   default — these use the entire sample and are the right summary for
   ex-post analysis. ``filtered=True`` returns the causal version.
+- **Spurious flipping**: 2-state variance HMMs are well documented to
+  produce 2-3 day "regime flips" during structural breaks (Salisu et al.
+  2020+ on COVID; practitioner accounts 2023-2024 on SVB / Fed pivot).
+  Apply :func:`enforce_min_dwell` to the output labels to suppress runs
+  shorter than the minimum economically-meaningful regime length.
 - **Convergence failures**: EM on small samples sometimes fails. We
   catch and propagate ``MarkovStateAlignmentError`` rather than letting
   cryptic statsmodels errors leak.
+
+References
+----------
+- Hamilton (1989), "A New Approach to the Economic Analysis of
+  Nonstationary Time Series and the Business Cycle" — original
+  framework.
+- Kim (1994), "Dynamic Linear Models with Markov-Switching",
+  *J. Econometrics* — smoothed probability algorithm.
+- Wang & Lin (2020), "Regime-Switching Factor Investing with HMMs",
+  *JRFM* 13(12):311 — recent peer-reviewed confirmation that 2-state
+  variance HMMs remain the default for daily equity regime detection.
+- Salisu, Adediran, Gupta (2020+), various — documents Markov-switching
+  spurious-flip issue on COVID-era data.
 """
 
 from __future__ import annotations

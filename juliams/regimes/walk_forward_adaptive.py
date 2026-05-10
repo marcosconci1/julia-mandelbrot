@@ -16,6 +16,17 @@ ch. 7) but applied to *online classification* rather than supervised CV.
 The leakage test in ``tests/test_walk_forward_adaptive.py`` makes the
 guarantee falsifiable by poisoning the future and asserting the past
 output is byte-identical.
+
+Note on validation methodology
+------------------------------
+Walk-forward is the right *production-deployment* model — it answers
+"would this have worked live?". For *backtest-overfitting control*,
+however, Arian, Norouzi & Seco (2024, *Knowledge-Based Systems*) show
+empirically that Combinatorial Purged Cross-Validation (CPCV) has lower
+Probability of Backtest Overfitting and higher Deflated Sharpe Ratio
+than walk-forward across hundreds of synthetic strategies. Use
+``juliams.regimes.cpcv`` alongside this module: walk-forward for
+deployment realism, CPCV for evaluation rigor.
 """
 
 from __future__ import annotations
