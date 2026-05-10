@@ -98,7 +98,7 @@ def validate_stock_symbol(symbol: str) -> bool:
 
 def validate_crypto_symbol(symbol: str) -> bool:
     pattern = r"^[A-Z]{2,10}(USDT|BUSD|BTC|ETH|BNB|USD)$"
-    return bool(re.match(pattern, symbol.upper()))
+    return bool(re.fullmatch(pattern, symbol.upper().strip()))
 
 class RateLimiter:
     """Simple sliding-window rate limiter."""

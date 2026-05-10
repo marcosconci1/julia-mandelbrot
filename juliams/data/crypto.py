@@ -173,11 +173,17 @@ class BinanceSource(DataSource):
     ) -> pd.DataFrame:
         self._validate_symbol(symbol)
 
+        period_days: Optional[int] = None
         if interval == "1d" and period is not None:
-            interval, _ = self._parse_period(period)
+            interval, period_days = self._parse_period(period)
 
         start_ts = int(pd.Timestamp(start).timestamp() * 1000) if start else None
         end_ts = int(pd.Timestamp(end).timestamp() * 1000) if end else None
+        if period_days is not None and start_ts is None and end_ts is None:
+            end_time = pd.Timestamp.now(tz="UTC")
+            start_time = end_time - pd.Timedelta(days=period_days)
+            start_ts = int(start_time.timestamp() * 1000)
+            end_ts = int(end_time.timestamp() * 1000)
 
         cache_key = self._cache_key(symbol, interval, start_ts, end_ts)
         cached = self._load_from_cache(cache_key)

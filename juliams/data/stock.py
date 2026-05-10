@@ -18,15 +18,27 @@ from .base import (
     APIConnectionError,
     DataNotAvailableError,
     DataSource,
+    DataSourceError,
     InvalidSymbolError,
 )
-from .utils import validate_stock_symbol, yfinance_rate_limit
+from .utils import validate_stock_symbol, yfinance_rate_limit, _CRYPTO_TICKERS
 
 logger = logging.getLogger(__name__)
 
 
 class YahooFinanceSource(DataSource):
     """Fetch historical market data from Yahoo Finance."""
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        symbol_upper = symbol.upper().strip()
+        if "-" in symbol_upper:
+            parts = symbol_upper.split("-")
+            if len(parts) == 2:
+                base, quote = parts
+                if quote in {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}:
+                    if base and base not in _CRYPTO_TICKERS:
+                        return f"{base}{quote}=X"
+        return symbol_upper
 
     def __init__(self, config=None, cache_dir: Optional[str] = None):
         super().__init__(config=config, cache_dir=cache_dir)
@@ -46,7 +58,8 @@ class YahooFinanceSource(DataSource):
         period: Optional[str],
         interval: str,
     ) -> str:
-        key_str = f"yfinance_{symbol}_{start}_{end}_{period}_{interval}"
+        normalized = self._normalize_symbol(symbol)
+        key_str = f"yfinance_{normalized}_{start}_{end}_{period}_{interval}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
     def _load_from_cache(self, cache_key: str) -> Optional[pd.DataFrame]:
@@ -90,9 +103,13 @@ class YahooFinanceSource(DataSource):
         if cached is not None:
             return cached
 
+        normalized_symbol = self._normalize_symbol(symbol)
+        if normalized_symbol != symbol:
+            logger.info("Normalized Yahoo Finance symbol %s -> %s", symbol, normalized_symbol)
+
         try:
             logger.info("Fetching %s from Yahoo Finance...", symbol)
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(normalized_symbol)
             if period:
                 df = ticker.history(period=period, interval=interval)
             else:
@@ -123,14 +140,15 @@ class YahooFinanceSource(DataSource):
         for symbol in symbols:
             try:
                 results[symbol] = self.fetch_data(symbol, start=start, end=end, period=period, interval=interval)
-            except DataSource as exc:  # type: ignore
+            except DataSourceError as exc:
                 logger.error("Failed to fetch %s: %s", symbol, exc)
         return results
 
     def get_latest_price(self, symbol: str) -> Optional[float]:
         try:
             self._validate_symbol(symbol)
-            ticker = yf.Ticker(symbol)
+            normalized_symbol = self._normalize_symbol(symbol)
+            ticker = yf.Ticker(normalized_symbol)
             info = ticker.fast_info if hasattr(ticker, "fast_info") else ticker.info
             return info.get("last_price") or info.get("regularMarketPrice")
         except Exception as exc:
