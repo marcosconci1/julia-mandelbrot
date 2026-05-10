@@ -58,15 +58,28 @@ class BOCPDResult:
 
 
 def _student_t_logpdf(
-    x: float, mu: np.ndarray, kappa: np.ndarray, alpha: np.ndarray, beta: np.ndarray
+    x: float,
+    mu: np.ndarray,
+    kappa: np.ndarray,
+    alpha: np.ndarray,
+    beta: np.ndarray,
+    df_cap: float | None = None,
 ) -> np.ndarray:
     """Log pdf of the predictive Student-t under the NIG prior.
 
     Standard derivation (Murphy 2007 conjugate-prior tutorial section 3):
     posterior predictive of NIG-Gaussian is
         Student-t(2α, μ, β(κ+1)/(α κ)).
+
+    When ``df_cap`` is set (e.g. 4 for daily financial returns), the
+    effective degrees of freedom are clamped at ``df_cap``. This keeps
+    the predictive density heavy-tailed even after long runs grow
+    α large; without this clamp the predictive converges to Gaussian
+    and BOCPD systematically over-smooths heavy-tailed data (Sellier &
+    Dellaportas, PMLR 2023; ACM 2025 finance BOCPD study).
     """
-    df = 2.0 * alpha
+    df_full = 2.0 * alpha
+    df = df_full if df_cap is None else np.minimum(df_full, df_cap)
     scale_sq = beta * (kappa + 1.0) / (alpha * kappa)
     z = (x - mu) ** 2 / scale_sq
     log_norm = (
@@ -84,6 +97,7 @@ def detect_change_points_bocpd(
     prior_kappa: float = 1.0,
     prior_alpha: float = 1.0,
     prior_beta: float = 1.0,
+    df_cap: float | None = None,
 ) -> BOCPDResult:
     """Run Adams-MacKay BOCPD on a 1-D series with Gaussian observations.
 
@@ -102,11 +116,23 @@ def detect_change_points_bocpd(
         sample mean and ``prior_beta / prior_alpha`` near the sample
         variance, but the algorithm is robust to mild misspecification
         for diagnostic use.
+    df_cap
+        Cap on the predictive Student-t degrees of freedom. When None
+        (default) the BOCPD behaves as in the original Adams-MacKay
+        formulation and the predictive converges to Gaussian as runs
+        grow. For daily financial returns set ``df_cap`` to a small
+        value (4-6) to keep the predictive heavy-tailed; this prevents
+        the well-documented over-smoothing on assets with fat tails
+        (Sellier & Dellaportas 2023; ACM 2025 finance BOCPD).
 
     Returns
     -------
     BOCPDResult
     """
+    if df_cap is not None and df_cap <= 2:
+        raise ValueError(
+            f"df_cap must be > 2 (Student-t variance is undefined for df<=2), got {df_cap}"
+        )
     if expected_run_length <= 0:
         raise ValueError(f"expected_run_length must be positive, got {expected_run_length}")
     if prior_kappa <= 0 or prior_alpha <= 0 or prior_beta <= 0:
@@ -138,7 +164,7 @@ def detect_change_points_bocpd(
     for t in range(n):
         x = clean.iloc[t]
         # Predictive log-likelihood under each existing run length.
-        log_pred = _student_t_logpdf(x, mu, kappa, alpha, beta)
+        log_pred = _student_t_logpdf(x, mu, kappa, alpha, beta, df_cap=df_cap)
 
         # Growth probabilities (run length increases by 1).
         log_growth = log_post + log_pred + np.log(1.0 - hazard)
