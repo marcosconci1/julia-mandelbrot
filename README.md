@@ -12,6 +12,7 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
 - **Fractal Analysis**: Hurst exponent computation to identify persistent trends vs mean-reverting behavior
 - **Tail-Risk Survival Layer**: CVaR, VaR, Hill tail-index, kurtosis, drawdown, and survival-state diagnostics
 - **Fuzzy Logic**: Probabilistic regime classification providing degrees of membership rather than binary states
+- **Adaptive Overlays**: Optional data driven thresholds, EWMA trend, Markov switching variance, and Bayesian change point detection that can run alongside the legacy classifier
 - **Forward Returns Analysis**: Statistical analysis of future returns conditioned on current regime
 - **Markov Transitions**: Regime transition probability matrices and persistence analysis
 - **Rich Visualizations**: Comprehensive charts showing price, indicators, and regime evolution (legacy dashboard + optional extended plots)
@@ -135,6 +136,31 @@ This will:
 4. Classify regimes (crisp + optional fuzzy)
 5. Analyse forward returns and regime transitions
 6. Render the legacy 4-panel dashboard (plus optional extended plots)
+
+### Adaptive Overlays
+
+The legacy classifier uses fixed thresholds that can drift out of calibration when market structure changes. Opt in to one or more adaptive overlays to add columns alongside the existing `regime` output. Defaults preserve the legacy behaviour exactly.
+
+```bash
+python main.py PLTR \
+    --adaptive-thresholds \
+    --markov-overlay \
+    --bocpd-overlay \
+    --min-dwell-days 5 \
+    --ewma-halflife 25
+```
+
+Each flag adds columns rather than replacing them:
+
+| Flag | Adds | Notes |
+|------|------|-------|
+| `--adaptive-thresholds` | `regime_adaptive` | Rolling quantile cutoffs on an EWMA z score (Hurst, Ooi, Pedersen 2017; Wang & Lin 2020) |
+| `--ewma-halflife H` | `trend_strength_ewma` | EWMA std denominator with halflife H (Caporin & Lillo 2023) |
+| `--markov-overlay` | `markov_prob_high`, `markov_state` | Two-state switching variance via `statsmodels.MarkovRegression` |
+| `--bocpd-overlay` | `bocpd_run_length`, `bocpd_change_prob` | Bayesian online change-point detection (Adams & MacKay 2007; Tsaknaki, Lillo, Mazzarisi 2024) |
+| `--min-dwell-days N` | (post-processes `markov_state`) | Suppresses runs shorter than N days |
+
+The same flags map to keyword arguments on `JuliaMandelbrotSystem.classify_regimes` and `JMSConfig` for programmatic use. For walk-forward calibration with strict no-future-leakage guarantees, see `juliams.regimes.walk_forward_adaptive`. For backtest-overfitting evaluation use `juliams.regimes.cpcv` (Arian, Norouzi & Seco 2024).
 
 ### Custom Configuration
 
