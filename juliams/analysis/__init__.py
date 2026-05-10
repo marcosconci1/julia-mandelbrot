@@ -45,6 +45,16 @@ from .group_rebound import (
     run_walk_forward_group_rebound,
     summarize_group_rebound_results,
 )
+from .walk_forward import (
+    DEFAULT_WALK_FORWARD_WINDOW_SPECS,
+    add_narrative_alignment,
+    build_recent_walk_forward_windows,
+    compare_group_rebound_overlay,
+    evaluate_group_rebound_promotion,
+    evaluate_research_grade_rebound_promotion,
+    narrative_alignment_score,
+    run_walk_forward_diagnostics,
+)
 
 __all__ = [
     'compute_forward_returns',
@@ -77,4 +87,12 @@ __all__ = [
     'compare_group_aware_rebound',
     'run_walk_forward_group_rebound',
     'summarize_group_rebound_results',
+    'DEFAULT_WALK_FORWARD_WINDOW_SPECS',
+    'add_narrative_alignment',
+    'build_recent_walk_forward_windows',
+    'compare_group_rebound_overlay',
+    'evaluate_group_rebound_promotion',
+    'evaluate_research_grade_rebound_promotion',
+    'narrative_alignment_score',
+    'run_walk_forward_diagnostics',
 ]
