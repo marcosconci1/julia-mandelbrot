@@ -23,7 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 viz = ["matplotlib>=3.4.0", "seaborn>=0.11.0", "plotly>=5.0.0"]
 ta  = ["ta>=0.10.0"]
-dev = ["pytest>=7.0.0", "black>=22.0.0", "flake8>=4.0.0"]
+hmm = ["hmmlearn>=0.3.0"]
+dev = ["pytest>=7.0.0", "black>=22.0.0", "flake8>=4.0.0", "hmmlearn>=0.3.0"]
 
 [tool.setuptools.packages.find]
 include = ["juliams*"]

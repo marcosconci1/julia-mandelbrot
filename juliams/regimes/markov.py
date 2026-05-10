@@ -223,6 +223,192 @@ def label_markov_regimes(
     return labels
 
 
+def _gaussian_log_emission_per_state(model, X: np.ndarray) -> np.ndarray:
+    """Per-state log Gaussian density for a fitted hmmlearn GaussianHMM.
+
+    Returns an (T, n_components) array. We compute this manually
+    because hmmlearn 0.3 made the corresponding internal helper
+    private. Uses the multivariate Gaussian density with the model's
+    means_ and covars_ attributes.
+    """
+    from scipy.stats import multivariate_normal
+
+    n_components = model.n_components
+    T = X.shape[0]
+    log_emission = np.empty((T, n_components))
+    for k in range(n_components):
+        cov = model.covars_[k]
+        # GaussianHMM with covariance_type="full" stores cov as (D, D).
+        log_emission[:, k] = multivariate_normal.logpdf(
+            X, mean=model.means_[k], cov=cov, allow_singular=True
+        )
+    return log_emission
+
+
+@dataclass(frozen=True)
+class MultivariateMarkovFit:
+    """Results from a multivariate-emission Gaussian HMM fit.
+
+    Same shape as ``MarkovVarianceFit`` but emissions are vectors,
+    typically ``[log_return, implied_vol_proxy]``. Use this when an
+    exogenous volatility series (GVZ for gold, VIX for equities, OVX
+    for oil, etc.) is available; the second channel lets the model
+    detect regime breaks that show up in implied vol BEFORE realized
+    vol catches up.
+
+    Attributes
+    ----------
+    smoothed_prob_high
+        Posterior P(high-vol state) using the full sample.
+    filtered_prob_high
+        Strictly causal version using only data up to time t.
+    state_means
+        2x2 array: row i is the mean vector of state i.
+    state_covariances
+        2x2x2 array: covariance matrix per state.
+    transition_matrix
+        2x2 array, canonicalised so state 0 = low vol, state 1 = high.
+    log_likelihood
+        Total log-likelihood under the fitted model.
+    feature_names
+        Names of the emission channels in column order.
+    """
+
+    smoothed_prob_high: pd.Series
+    filtered_prob_high: pd.Series
+    state_means: np.ndarray
+    state_covariances: np.ndarray
+    transition_matrix: np.ndarray
+    log_likelihood: float
+    feature_names: list[str]
+
+
+def fit_multivariate_markov_regime(
+    features: pd.DataFrame,
+    return_col: str = "log_return",
+    vol_col: str = "implied_vol",
+    n_iter: int = 200,
+    random_state: Optional[int] = 0,
+) -> MultivariateMarkovFit:
+    """Fit a 2-state Gaussian HMM to a return + implied-vol feature pair.
+
+    Why this exists alongside ``fit_markov_variance_regime``
+    --------------------------------------------------------
+    The single-channel model fits only ``returns`` and infers vol
+    regimes from realised variance changes. This works well for slow
+    structural breaks but lags fast ones because realised vol takes
+    days to register a shock that options markets price instantly.
+    Adding an implied-vol channel (Aigner 2023; ACM 2024 VIX-gold
+    causality study) closes that gap — the HMM can flag a high-vol
+    state from elevated implied vol even when realised vol hasn't yet
+    moved.
+
+    Parameters
+    ----------
+    features
+        DataFrame containing at least ``return_col`` and ``vol_col``.
+        Rows where either is NaN are dropped before fitting.
+    return_col, vol_col
+        Column names for the two emission channels.
+    n_iter, random_state
+        Forwarded to ``hmmlearn.GaussianHMM``.
+
+    Raises
+    ------
+    ImportError
+        If ``hmmlearn`` is not installed (it is an optional dep).
+    ValueError
+        If required columns are missing or there are too few clean rows.
+    """
+    try:
+        from hmmlearn.hmm import GaussianHMM
+    except ImportError as exc:
+        raise ImportError(
+            "fit_multivariate_markov_regime requires hmmlearn. "
+            "Install with: pip install 'juliams[hmm]'  or  pip install hmmlearn"
+        ) from exc
+
+    if return_col not in features.columns:
+        raise ValueError(f"Missing required column {return_col!r}")
+    if vol_col not in features.columns:
+        raise ValueError(f"Missing required column {vol_col!r}")
+
+    clean = features[[return_col, vol_col]].dropna().astype(float)
+    if len(clean) < 50:
+        raise ValueError(
+            f"Need at least 50 clean rows; got {len(clean)} "
+            f"after dropping NaN in {return_col} or {vol_col}."
+        )
+
+    model = GaussianHMM(
+        n_components=2,
+        covariance_type="full",
+        n_iter=n_iter,
+        random_state=random_state,
+    )
+    model.fit(clean.values)
+
+    # Canonicalise: state 0 = low vol, state 1 = high vol, by ranking
+    # on the variance of the return channel (column 0). This matches
+    # the convention in the univariate fitter and keeps labels stable
+    # across refits.
+    return_vars = np.array(
+        [model.covars_[i][0, 0] for i in range(2)]
+    )
+    if return_vars[0] <= return_vars[1]:
+        low_idx, high_idx = 0, 1
+    else:
+        low_idx, high_idx = 1, 0
+    perm = np.array([low_idx, high_idx])
+
+    state_means = model.means_[perm]
+    state_covariances = model.covars_[perm]
+    transition_matrix = model.transmat_[np.ix_(perm, perm)]
+
+    posteriors = model.predict_proba(clean.values)  # shape (T, 2)
+    smoothed_high = posteriors[:, high_idx]
+
+    # Compute filtered (causal) probabilities by running the forward
+    # recursion ourselves using the public per-state emission
+    # log-likelihoods. hmmlearn 0.3 dropped its public _do_forward_pass.
+    log_emission = _gaussian_log_emission_per_state(
+        model, clean.values
+    )  # shape (T, 2)
+    log_pi = np.log(model.startprob_ + 1e-300)
+    log_trans = np.log(model.transmat_ + 1e-300)
+
+    T = len(clean)
+    log_alpha = np.empty((T, 2))
+    log_alpha[0] = log_pi + log_emission[0]
+    for t in range(1, T):
+        # log alpha_t[j] = logsumexp_i (log alpha_{t-1}[i] + log P(j|i)) + log P(x_t|j)
+        log_alpha[t] = (
+            np.logaddexp(
+                log_alpha[t - 1, 0] + log_trans[0],
+                log_alpha[t - 1, 1] + log_trans[1],
+            )
+            + log_emission[t]
+        )
+    norm = np.logaddexp(log_alpha[:, 0], log_alpha[:, 1])
+    filtered_raw = np.exp(log_alpha - norm[:, None])  # (T, 2)
+    filtered_high = filtered_raw[:, high_idx]
+
+    smoothed_series = pd.Series(np.nan, index=features.index, dtype=float)
+    filtered_series = pd.Series(np.nan, index=features.index, dtype=float)
+    smoothed_series.loc[clean.index] = smoothed_high
+    filtered_series.loc[clean.index] = filtered_high
+
+    return MultivariateMarkovFit(
+        smoothed_prob_high=smoothed_series,
+        filtered_prob_high=filtered_series,
+        state_means=state_means,
+        state_covariances=state_covariances,
+        transition_matrix=transition_matrix,
+        log_likelihood=float(model.score(clean.values)),
+        feature_names=[return_col, vol_col],
+    )
+
+
 def enforce_min_dwell(
     labels: pd.Series,
     min_days: int = 5,
