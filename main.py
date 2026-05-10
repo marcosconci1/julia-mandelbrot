@@ -295,6 +295,25 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--markov-vol-channel",
+        type=str,
+        default=None,
+        help=(
+            "yfinance ticker for an implied-volatility index to use as a "
+            "second emission channel in the Markov HMM (e.g. ^GVZ for gold, "
+            "^VIX for SPY). Falls back to univariate if the fetch fails."
+        ),
+    )
+    parser.add_argument(
+        "--markov-auto-vol-channel",
+        action="store_true",
+        help=(
+            "Automatically select the implied-vol ticker for known asset "
+            "classes (gold -> ^GVZ, SPY -> ^VIX, oil -> ^OVX, ...). "
+            "Overridden by --markov-vol-channel when both are set."
+        ),
+    )
+    parser.add_argument(
         "--bocpd-overlay",
         action="store_true",
         help=(
@@ -403,6 +422,8 @@ def run_analysis(
     adaptive_window: int = 252,
     ewma_halflife: Optional[float] = None,
     markov_overlay: bool = False,
+    markov_vol_channel: Optional[str] = None,
+    markov_auto_vol_channel: bool = False,
     bocpd_overlay: bool = False,
     bocpd_method: str = "standard",
     bocpd_expected_run_length: float = 100.0,
@@ -476,9 +497,18 @@ def run_analysis(
 
     if markov_overlay:
         from juliams.regimes.overlays import apply_markov_overlay
-        df = apply_markov_overlay(df, min_dwell=min_dwell_days)
+        vol_ch = markov_vol_channel
+        if vol_ch is None and markov_auto_vol_channel:
+            from juliams.regimes.vol_tickers import auto_vol_channel
+            vol_ch = auto_vol_channel(symbol)
+        df = apply_markov_overlay(df, min_dwell=min_dwell_days, vol_channel=vol_ch)
+        tag_parts = ["markov"]
+        if min_dwell_days > 1:
+            tag_parts.append(f"min_dwell={min_dwell_days}")
+        if vol_ch:
+            tag_parts.append(f"vol={vol_ch}")
         overlays_used.append(
-            f"markov(min_dwell={min_dwell_days})" if min_dwell_days > 1 else "markov"
+            tag_parts[0] + ("(" + ",".join(tag_parts[1:]) + ")" if len(tag_parts) > 1 else "")
         )
 
     if bocpd_overlay:
@@ -1221,6 +1251,8 @@ def main() -> None:
             adaptive_window=args.adaptive_window,
             ewma_halflife=args.ewma_halflife,
             markov_overlay=args.markov_overlay,
+            markov_vol_channel=args.markov_vol_channel,
+            markov_auto_vol_channel=args.markov_auto_vol_channel,
             bocpd_overlay=args.bocpd_overlay,
             bocpd_method=args.bocpd_method,
             bocpd_expected_run_length=args.bocpd_expected_run_length,

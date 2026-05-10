@@ -198,6 +198,8 @@ class JuliaMandelbrotSystem:
         adaptive_thresholds: Optional[bool] = None,
         ewma_halflife: Optional[float] = None,
         markov_overlay: Optional[bool] = None,
+        markov_vol_channel: Optional[str] = None,
+        markov_auto_vol_channel: Optional[bool] = None,
         bocpd_overlay: Optional[bool] = None,
         bocpd_method: Optional[str] = None,
         min_dwell_days: Optional[int] = None,
@@ -258,6 +260,20 @@ class JuliaMandelbrotSystem:
             if markov_overlay is not None
             else getattr(cfg, "markov_overlay", False)
         )
+        markov_vol_eff = (
+            markov_vol_channel
+            if markov_vol_channel is not None
+            else getattr(cfg, "markov_vol_channel", None)
+        )
+        markov_auto_vol = (
+            markov_auto_vol_channel
+            if markov_auto_vol_channel is not None
+            else getattr(cfg, "markov_auto_vol_channel", False)
+        )
+        if markov_vol_eff is None and markov_auto_vol:
+            from .regimes.vol_tickers import auto_vol_channel
+            ticker = getattr(self, "ticker", None)
+            markov_vol_eff = auto_vol_channel(ticker) if ticker else None
         bocpd_on = (
             bocpd_overlay
             if bocpd_overlay is not None
@@ -321,7 +337,9 @@ class JuliaMandelbrotSystem:
             self.df = apply_ewma_overlay(self.df, halflife=float(ewma_hl))
 
         if markov_on:
-            self.df = apply_markov_overlay(self.df, min_dwell=dwell)
+            self.df = apply_markov_overlay(
+                self.df, min_dwell=dwell, vol_channel=markov_vol_eff
+            )
 
         if bocpd_on:
             self.df = apply_bocpd_overlay(

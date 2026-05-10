@@ -108,6 +108,8 @@ class JMSConfig:
     adaptive_floor: float = 0.10
     ewma_halflife: Optional[float] = None
     markov_overlay: bool = False
+    markov_vol_channel: Optional[str] = None
+    markov_auto_vol_channel: bool = False
     bocpd_overlay: bool = False
     bocpd_expected_run_length: float = 100.0
     bocpd_method: str = "standard"
@@ -240,6 +242,8 @@ class JMSConfig:
             "adaptive_floor": self.adaptive_floor,
             "ewma_halflife": self.ewma_halflife,
             "markov_overlay": self.markov_overlay,
+            "markov_vol_channel": self.markov_vol_channel,
+            "markov_auto_vol_channel": self.markov_auto_vol_channel,
             "bocpd_overlay": self.bocpd_overlay,
             "bocpd_expected_run_length": self.bocpd_expected_run_length,
             "bocpd_method": self.bocpd_method,

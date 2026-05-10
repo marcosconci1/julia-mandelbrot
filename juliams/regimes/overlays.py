@@ -18,10 +18,13 @@ All overlays are causal (no future leakage) by construction:
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def apply_adaptive_threshold_overlay(
@@ -73,11 +76,47 @@ def apply_ewma_overlay(
     return df
 
 
+def _fetch_vol_series(
+    ticker: str,
+    start: object,
+    end: object,
+) -> Optional[pd.Series]:
+    """Fetch a vol-index ticker's daily close. Returns None on any
+    failure so callers can fall back to the univariate path."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        logger.warning("yfinance not available; cannot auto-fetch vol channel")
+        return None
+    try:
+        raw = yf.download(
+            ticker,
+            start=start,
+            end=end,
+            progress=False,
+            auto_adjust=False,
+        )
+    except Exception as exc:  # network, rate-limit, etc.
+        logger.warning("Failed to fetch vol-index %s: %s", ticker, exc)
+        return None
+    if raw is None or len(raw) == 0:
+        logger.warning("No data returned for vol-index %s", ticker)
+        return None
+    close = raw["Close"] if "Close" in raw.columns else raw.iloc[:, 0]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+    close.name = "implied_vol"
+    # Vol indices are quoted in percent; convert to fraction for
+    # numerical comparability with returns.
+    return close.astype(float) / 100.0
+
+
 def apply_markov_overlay(
     df: pd.DataFrame,
     return_col: str = "log_return",
     min_dwell: int = 1,
     threshold: float = 0.5,
+    vol_channel: object = None,
 ) -> pd.DataFrame:
     """Add ``markov_prob_high`` and ``markov_state`` columns.
 
@@ -85,6 +124,21 @@ def apply_markov_overlay(
     columns that downstream code may treat as live signals). Apply
     ``min_dwell`` post-processing if requested to suppress spurious
     flips during structural breaks.
+
+    Parameters
+    ----------
+    vol_channel
+        - ``None`` (default): use the univariate Markov fit on returns
+          only.
+        - ``str``: a yfinance-compatible ticker (e.g. ``"^GVZ"``); the
+          implied-vol series is auto-fetched and used as the second
+          channel in a multivariate HMM fit.
+        - ``pd.Series``: a pre-aligned implied-vol series, used
+          directly without any fetch.
+
+        If a fetch fails (no network, rate-limit, ticker unavailable),
+        the function emits a warning and falls back to the univariate
+        path so downstream callers still get the standard columns.
     """
     from juliams.regimes.markov import (
         enforce_min_dwell,
@@ -103,12 +157,70 @@ def apply_markov_overlay(
     else:
         returns = df[return_col]
 
+    vol_series: Optional[pd.Series] = None
+    if isinstance(vol_channel, str):
+        vol_series = _fetch_vol_series(
+            vol_channel, start=df.index.min(), end=df.index.max()
+        )
+    elif isinstance(vol_channel, pd.Series):
+        vol_series = vol_channel
+    elif vol_channel is not None:
+        raise TypeError(
+            f"vol_channel must be None, str (ticker), or pd.Series; "
+            f"got {type(vol_channel).__name__}"
+        )
+
+    df = df.copy()
+
+    if vol_series is not None:
+        # Try the multivariate fit. On any failure (alignment, fit
+        # convergence, missing optional dep), fall back to univariate.
+        try:
+            from juliams.regimes.markov import fit_multivariate_markov_regime
+            # Align by calendar date to absorb tz differences between
+            # the price fetch (typically tz-aware) and the IV fetch
+            # (typically tz-naive). We normalise both indices to plain
+            # dates, reindex, then restore the original returns index
+            # for the output columns.
+            ret_dates = pd.DatetimeIndex(returns.index.normalize().tz_localize(None))
+            vol_dates = pd.DatetimeIndex(vol_series.index)
+            if vol_dates.tz is not None:
+                vol_dates = vol_dates.tz_convert(None)
+            vol_dates = vol_dates.normalize()
+            vol_by_date = pd.Series(
+                vol_series.values, index=vol_dates, name="implied_vol"
+            )
+            aligned_iv = vol_by_date.reindex(ret_dates).values
+            features = pd.DataFrame(
+                {
+                    "log_return": returns.values,
+                    "implied_vol": aligned_iv,
+                },
+                index=returns.index,
+            )
+            multi = fit_multivariate_markov_regime(features)
+            df["markov_prob_high"] = multi.filtered_prob_high
+            from juliams.regimes.markov import enforce_min_dwell
+            labels = pd.Series("Unknown", index=multi.filtered_prob_high.index, dtype=object)
+            valid = multi.filtered_prob_high.notna()
+            labels.loc[valid & (multi.filtered_prob_high > threshold)] = "High"
+            labels.loc[valid & (multi.filtered_prob_high <= threshold)] = "Low"
+            if min_dwell > 1:
+                labels = enforce_min_dwell(labels, min_days=min_dwell)
+            df["markov_state"] = labels
+            return df
+        except Exception as exc:
+            logger.warning(
+                "Multivariate Markov fit failed (%s); falling back to univariate.",
+                exc,
+            )
+
+    # Univariate fallback (original behaviour).
     fit = fit_markov_variance_regime(returns)
     labels = label_markov_regimes(fit, threshold=threshold, use_filtered=True)
     if min_dwell > 1:
         labels = enforce_min_dwell(labels, min_days=min_dwell)
 
-    df = df.copy()
     df["markov_prob_high"] = fit.filtered_prob_high
     df["markov_state"] = labels
     return df
