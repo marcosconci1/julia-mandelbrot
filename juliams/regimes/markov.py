@@ -202,3 +202,72 @@ def label_markov_regimes(
     labels.loc[valid & (probs > threshold)] = "High"
     labels.loc[valid & (probs <= threshold)] = "Low"
     return labels
+
+
+def enforce_min_dwell(
+    labels: pd.Series,
+    min_days: int = 5,
+    unknown_label: str = "Unknown",
+) -> pd.Series:
+    """Suppress regime flips shorter than ``min_days`` observations.
+
+    Why this exists
+    ---------------
+    A well-documented failure mode of 2-state Markov-switching variance
+    models on real equity data (Salisu et al. 2020+ on COVID;
+    practitioner accounts 2023-2024 on SVB / Fed pivot) is *spurious
+    flipping*: the smoothed/filtered state probability oscillates
+    around 0.5 during structural breaks, producing label sequences like
+    ``HLHLHHLLHHL`` that do not correspond to actual regime changes.
+
+    The standard fix is a minimum-dwell-time post-processor: a new
+    state must persist for at least ``min_days`` observations before we
+    accept the switch. If the candidate run is shorter, we extend the
+    previous state through it.
+
+    The function preserves Unknown labels (which mark warmup or NaN
+    inputs) and operates left-to-right, so it never uses future
+    information. Idempotent — applying it twice yields the same result.
+
+    Parameters
+    ----------
+    labels
+        Discrete regime labels, e.g. output of
+        :func:`label_markov_regimes`.
+    min_days
+        Minimum dwell time. ``min_days=1`` is a no-op.
+    unknown_label
+        Label string treated as "warmup" — neither extends nor breaks
+        runs. Defaults to ``"Unknown"`` to match this module's convention.
+    """
+    if min_days < 1:
+        raise ValueError(f"min_days must be >= 1, got {min_days}")
+    if min_days == 1 or len(labels) == 0:
+        return labels.copy()
+
+    out = labels.copy()
+    values = out.values.copy()
+    n = len(values)
+
+    # Walk runs of identical non-Unknown labels. When a run shorter than
+    # min_days is followed by a different non-Unknown label, replace it
+    # with the previous accepted label.
+    last_accepted: object = None
+    i = 0
+    while i < n:
+        if values[i] == unknown_label:
+            i += 1
+            continue
+        # Find the end of the current run.
+        j = i
+        while j < n and values[j] == values[i]:
+            j += 1
+        run_len = j - i
+        if run_len < min_days and last_accepted is not None:
+            values[i:j] = last_accepted
+        else:
+            last_accepted = values[i]
+        i = j
+
+    out.iloc[:] = values
+    return out
