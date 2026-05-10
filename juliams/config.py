@@ -11,6 +11,8 @@ from typing import Dict, Optional, Tuple
 class StockConfig:
     trend_window: int = 20
     volatility_window: int = 20
+    volatility_method: str = "std"
+    volatility_annualize: bool = False
     hurst_window: int = 100
     volatility_baseline_window: int = 100
     trend_threshold_up: float = 0.2
@@ -18,6 +20,19 @@ class StockConfig:
     volatility_percentile: float = 0.67
     hurst_threshold: float = 0.55
     hurst_indeterminate_range: Tuple[float, float] = (0.45, 0.55)
+    hurst_confidence_level: float = 0.95
+    lo_modified_rs_lags: Optional[int] = None
+    tail_risk_window: int = 252
+    tail_var_alpha: float = 0.95
+    tail_cvar_alpha: float = 0.95
+    hill_tail_fraction: float = 0.10
+    hill_min_tail_observations: int = 5
+    fragile_cvar: float = 0.04
+    stressed_cvar: float = 0.02
+    fragile_tail_index: float = 3.0
+    stressed_tail_index: float = 4.0
+    fragile_drawdown: float = -0.15
+    stressed_drawdown: float = -0.07
     default_period: str = "2y"
 
 
@@ -25,6 +40,8 @@ class StockConfig:
 class CryptoConfig:
     trend_window: int = 14
     volatility_window: int = 14
+    volatility_method: str = "std"
+    volatility_annualize: bool = False
     hurst_window: int = 75
     volatility_baseline_window: int = 75
     trend_threshold_up: float = 0.2
@@ -32,6 +49,19 @@ class CryptoConfig:
     volatility_percentile: float = 0.75
     hurst_threshold: float = 0.55
     hurst_indeterminate_range: Tuple[float, float] = (0.45, 0.55)
+    hurst_confidence_level: float = 0.95
+    lo_modified_rs_lags: Optional[int] = None
+    tail_risk_window: int = 120
+    tail_var_alpha: float = 0.95
+    tail_cvar_alpha: float = 0.95
+    hill_tail_fraction: float = 0.10
+    hill_min_tail_observations: int = 5
+    fragile_cvar: float = 0.07
+    stressed_cvar: float = 0.04
+    fragile_tail_index: float = 2.5
+    stressed_tail_index: float = 3.5
+    fragile_drawdown: float = -0.25
+    stressed_drawdown: float = -0.12
     default_period: str = "1y"
 
 
@@ -42,6 +72,8 @@ class JMSConfig:
 
     trend_window: int = 20
     volatility_window: int = 20
+    volatility_method: str = "std"
+    volatility_annualize: bool = False
     hurst_window: int = 100
     volatility_baseline_window: int = 100
     trend_threshold_up: float = 0.2
@@ -49,6 +81,19 @@ class JMSConfig:
     volatility_percentile: float = 0.67
     hurst_threshold: float = 0.55
     hurst_indeterminate_range: Tuple[float, float] = (0.45, 0.55)
+    hurst_confidence_level: float = 0.95
+    lo_modified_rs_lags: Optional[int] = None
+    tail_risk_window: int = 252
+    tail_var_alpha: float = 0.95
+    tail_cvar_alpha: float = 0.95
+    hill_tail_fraction: float = 0.10
+    hill_min_tail_observations: int = 5
+    fragile_cvar: float = 0.04
+    stressed_cvar: float = 0.02
+    fragile_tail_index: float = 3.0
+    stressed_tail_index: float = 4.0
+    fragile_drawdown: float = -0.15
+    stressed_drawdown: float = -0.07
 
     use_fuzzy: bool = True
     fuzzy_trend_range: Tuple[float, float] = (-3.0, 3.0)
@@ -100,6 +145,8 @@ class JMSConfig:
         source_dict = {
             "trend_window": cfg.trend_window,
             "volatility_window": cfg.volatility_window,
+            "volatility_method": cfg.volatility_method,
+            "volatility_annualize": cfg.volatility_annualize,
             "hurst_window": cfg.hurst_window,
             "volatility_baseline_window": cfg.volatility_baseline_window,
             "trend_threshold_up": cfg.trend_threshold_up,
@@ -107,6 +154,19 @@ class JMSConfig:
             "volatility_percentile": cfg.volatility_percentile,
             "hurst_threshold": cfg.hurst_threshold,
             "hurst_indeterminate_range": cfg.hurst_indeterminate_range,
+            "hurst_confidence_level": cfg.hurst_confidence_level,
+            "lo_modified_rs_lags": cfg.lo_modified_rs_lags,
+            "tail_risk_window": cfg.tail_risk_window,
+            "tail_var_alpha": cfg.tail_var_alpha,
+            "tail_cvar_alpha": cfg.tail_cvar_alpha,
+            "hill_tail_fraction": cfg.hill_tail_fraction,
+            "hill_min_tail_observations": cfg.hill_min_tail_observations,
+            "fragile_cvar": cfg.fragile_cvar,
+            "stressed_cvar": cfg.stressed_cvar,
+            "fragile_tail_index": cfg.fragile_tail_index,
+            "stressed_tail_index": cfg.stressed_tail_index,
+            "fragile_drawdown": cfg.fragile_drawdown,
+            "stressed_drawdown": cfg.stressed_drawdown,
             "default_period": cfg.default_period,
         }
         source_dict.update({
@@ -130,6 +190,8 @@ class JMSConfig:
         return {
             "trend_window": self.trend_window,
             "volatility_window": self.volatility_window,
+            "volatility_method": self.volatility_method,
+            "volatility_annualize": self.volatility_annualize,
             "hurst_window": self.hurst_window,
             "volatility_baseline_window": self.volatility_baseline_window,
             "trend_threshold_up": self.trend_threshold_up,
@@ -137,6 +199,19 @@ class JMSConfig:
             "volatility_percentile": self.volatility_percentile,
             "hurst_threshold": self.hurst_threshold,
             "hurst_indeterminate_range": self.hurst_indeterminate_range,
+            "hurst_confidence_level": self.hurst_confidence_level,
+            "lo_modified_rs_lags": self.lo_modified_rs_lags,
+            "tail_risk_window": self.tail_risk_window,
+            "tail_var_alpha": self.tail_var_alpha,
+            "tail_cvar_alpha": self.tail_cvar_alpha,
+            "hill_tail_fraction": self.hill_tail_fraction,
+            "hill_min_tail_observations": self.hill_min_tail_observations,
+            "fragile_cvar": self.fragile_cvar,
+            "stressed_cvar": self.stressed_cvar,
+            "fragile_tail_index": self.fragile_tail_index,
+            "stressed_tail_index": self.stressed_tail_index,
+            "fragile_drawdown": self.fragile_drawdown,
+            "stressed_drawdown": self.stressed_drawdown,
             "use_fuzzy": self.use_fuzzy,
             "fuzzy_trend_range": self.fuzzy_trend_range,
             "fuzzy_vol_range": self.fuzzy_vol_range,
@@ -174,6 +249,28 @@ class JMSConfig:
             raise ValueError("volatility_percentile must be between 0 and 1")
         if not 0 < self.hurst_threshold < 1:
             raise ValueError("hurst_threshold must be between 0 and 1")
+        if self.volatility_method not in {"std", "ewm", "parkinson", "realized"}:
+            raise ValueError("volatility_method must be one of: std, ewm, parkinson, realized")
+        if self.hurst_confidence_level not in {0.90, 0.95, 0.99}:
+            raise ValueError("hurst_confidence_level must be one of: 0.90, 0.95, 0.99")
+        if self.lo_modified_rs_lags is not None and self.lo_modified_rs_lags < 0:
+            raise ValueError("lo_modified_rs_lags must be non-negative")
+        if self.tail_risk_window <= 0:
+            raise ValueError("tail_risk_window must be positive")
+        if not 0 < self.tail_var_alpha < 1:
+            raise ValueError("tail_var_alpha must be between 0 and 1")
+        if not 0 < self.tail_cvar_alpha < 1:
+            raise ValueError("tail_cvar_alpha must be between 0 and 1")
+        if not 0 < self.hill_tail_fraction < 1:
+            raise ValueError("hill_tail_fraction must be between 0 and 1")
+        if self.hill_min_tail_observations <= 1:
+            raise ValueError("hill_min_tail_observations must be greater than 1")
+        if self.fragile_cvar <= 0 or self.stressed_cvar <= 0:
+            raise ValueError("CVaR thresholds must be positive")
+        if self.fragile_tail_index <= 0 or self.stressed_tail_index <= 0:
+            raise ValueError("tail-index thresholds must be positive")
+        if self.fragile_drawdown >= 0 or self.stressed_drawdown >= 0:
+            raise ValueError("drawdown thresholds must be negative")
         if self.fuzzy_trend_range[0] >= self.fuzzy_trend_range[1]:
             raise ValueError("Invalid fuzzy_trend_range")
         if self.fuzzy_vol_range[0] >= self.fuzzy_vol_range[1]:

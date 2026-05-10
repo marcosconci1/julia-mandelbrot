@@ -22,6 +22,7 @@ from juliams.data.utils import detect_source_type
 from juliams.features import (
     compute_fractal_features,
     compute_hurst_features,
+    compute_tail_risk_features,
     compute_trend_features,
     compute_volatility_features,
 )
@@ -29,12 +30,57 @@ from juliams.regimes import RegimeClassifier
 from juliams.regimes.fuzzy import compute_fuzzy_features
 from juliams.analysis import (
     analyze_forward_returns_by_regime,
+    build_recent_walk_forward_windows,
     compute_forward_returns,
     compute_transition_matrix,
+    evaluate_research_grade_rebound_promotion,
     get_segment_summary,
+    run_walk_forward_diagnostics,
+    summarize_group_rebound_results,
 )
 
 DEFAULT_SYMBOL = "AAPL"
+DEFAULT_DIAGNOSTIC_SYMBOLS = [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "DIA",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "GOOGL",
+    "AMZN",
+    "TLT",
+    "GLD",
+    "BTC-USD",
+    "ETH-USD",
+]
+
+
+def _ensure_interactive_matplotlib_backend() -> bool:
+    """Switch to an interactive Matplotlib backend when possible."""
+    try:
+        import matplotlib
+        from matplotlib.backends import backend_registry, BackendFilter
+    except Exception:
+        return False
+
+    backend = matplotlib.get_backend()
+    interactive_backends = backend_registry.list_builtin(BackendFilter.INTERACTIVE)
+    if backend in interactive_backends:
+        return True
+
+    preferred_backends = ("QtAgg", "Qt5Agg", "TkAgg", "GTK3Agg", "WXAgg")
+    for candidate in preferred_backends:
+        if candidate not in interactive_backends:
+            continue
+        try:
+            matplotlib.use(candidate, force=True)
+            return True
+        except Exception:
+            continue
+
+    return False
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -92,6 +138,106 @@ def parse_arguments() -> argparse.Namespace:
         "--extra-plots",
         action="store_true",
         help="Include extended visualization suite in addition to the legacy dashboard.",
+    )
+    parser.add_argument(
+        "--walk-forward-diagnostics",
+        action="store_true",
+        help="Run group-aware rebound walk-forward diagnostics instead of single-symbol analysis.",
+    )
+    parser.add_argument(
+        "--diagnostic-symbols",
+        nargs="+",
+        help="Symbols for --walk-forward-diagnostics. Defaults to the main cross-asset basket.",
+    )
+    parser.add_argument(
+        "--diagnostic-period",
+        default="2y",
+        help="History period for --walk-forward-diagnostics (default: 2y).",
+    )
+    parser.add_argument(
+        "--diagnostic-csv",
+        metavar="PATH",
+        help="Optional CSV path for raw walk-forward diagnostic rows.",
+    )
+    parser.add_argument(
+        "--overlay-enabled-groups",
+        nargs="+",
+        help="Asset groups allowed to use the rebound overlay in diagnostics.",
+    )
+    parser.add_argument(
+        "--rebound-exposure",
+        type=float,
+        default=0.75,
+        help="Rebound overlay exposure for enabled groups (default: 0.75).",
+    )
+    parser.add_argument(
+        "--rebound-fast-window",
+        type=int,
+        default=5,
+        help="Fast momentum window for the rebound overlay (default: 5).",
+    )
+    parser.add_argument(
+        "--rebound-lookback",
+        type=int,
+        default=20,
+        help="Rolling-low lookback for the rebound overlay (default: 20).",
+    )
+    parser.add_argument(
+        "--min-rebound",
+        type=float,
+        default=0.03,
+        help="Minimum recovery from rolling low for rebound overlay (default: 0.03).",
+    )
+    parser.add_argument(
+        "--min-fast-return",
+        type=float,
+        default=0.02,
+        help="Minimum fast-window return for rebound overlay (default: 0.02).",
+    )
+    parser.add_argument(
+        "--no-rebound-fast-ma",
+        action="store_true",
+        help="Disable the fast moving-average confirmation for rebound overlay diagnostics.",
+    )
+    parser.add_argument(
+        "--no-drawdown-gate",
+        action="store_true",
+        help="Disable the prior-drawdown gate for rebound overlay diagnostics.",
+    )
+    parser.add_argument(
+        "--drawdown-gate-lookback",
+        type=int,
+        default=20,
+        help="Lookback for requiring a recent prior drawdown before rebound overlay can fire.",
+    )
+    parser.add_argument(
+        "--min-prior-drawdown",
+        type=float,
+        default=-0.05,
+        help="Minimum recent drawdown required before rebound overlay can fire (default: -0.05).",
+    )
+    parser.add_argument(
+        "--max-overlay-holding-period",
+        type=int,
+        default=5,
+        help="Maximum consecutive overlay signal days before forcing an overlay exit (default: 5).",
+    )
+    parser.add_argument(
+        "--overlay-stop-loss",
+        type=float,
+        default=-0.03,
+        help="Overlay stop loss from signal entry price (default: -0.03).",
+    )
+    parser.add_argument(
+        "--transaction-cost-bps",
+        type=float,
+        default=5.0,
+        help="Round-trip friction estimate in basis points for diagnostic backtests (default: 5).",
+    )
+    parser.add_argument(
+        "--no-parameter-stability-check",
+        action="store_true",
+        help="Skip nearby-parameter promotion checks for faster exploratory diagnostics.",
     )
     return parser.parse_args()
 
@@ -178,6 +324,7 @@ def run_analysis(
     df = compute_volatility_features(df, source_config)
     df = compute_hurst_features(df, source_config)
     df = compute_fractal_features(df, source_config)
+    df = compute_tail_risk_features(df, source_config)
 
     # Regime classification
     classifier = RegimeClassifier(
@@ -220,11 +367,209 @@ def _format_percentage(value: float) -> str:
     return f"{value * 100:6.2f}%" if pd.notna(value) else "   n/a"
 
 
+def _format_percentage_points(value: float) -> str:
+    """Format values that are already expressed on a 0-100 percentage scale."""
+    return f"{value:6.2f}%" if pd.notna(value) else "   n/a"
+
+
 def _format_decimal(value: Optional[float], precision: int = 4) -> str:
     """Format numeric values with safe handling for NaN."""
     if value is None or pd.isna(value):
         return "n/a"
     return f"{value:.{precision}f}"
+
+
+def _build_rebound_stability_variants(
+    *,
+    rebound_exposure: float,
+    rebound_fast_window: int,
+    rebound_lookback: int,
+    min_rebound: float,
+    min_fast_return: float,
+    require_prior_drawdown: Optional[bool],
+    drawdown_gate_lookback: Optional[int],
+    min_prior_drawdown: Optional[float],
+    max_overlay_holding_period: Optional[int],
+    overlay_stop_loss: Optional[float],
+) -> Dict[str, Dict[str, object]]:
+    """Build nearby parameter checks for promotion stability."""
+    base_gate_lookback = drawdown_gate_lookback or 20
+    base_prior_drawdown = min_prior_drawdown if min_prior_drawdown is not None else -0.05
+    base_max_hold = max_overlay_holding_period if max_overlay_holding_period is not None else 5
+    base_stop_loss = overlay_stop_loss if overlay_stop_loss is not None else -0.03
+
+    return {
+        "lower_exposure": {
+            "rebound_exposure": max(0.0, min(rebound_exposure, 0.50)),
+        },
+        "slower_confirmation": {
+            "fast_window": max(1, rebound_fast_window + 2),
+            "drawdown_lookback": max(1, rebound_lookback + 10),
+            "min_rebound": min_rebound + 0.02,
+            "min_fast_return": min_fast_return + 0.01,
+        },
+        "stricter_risk_gate": {
+            "require_prior_drawdown": True,
+            "drawdown_gate_lookback": base_gate_lookback + 10,
+            "min_prior_drawdown": min(base_prior_drawdown, -0.08),
+            "max_overlay_holding_period": max(1, base_max_hold - 2),
+            "overlay_stop_loss": min(base_stop_loss, -0.04),
+        },
+    }
+
+
+def run_walk_forward_diagnostics_report(
+    symbols: List[str],
+    period: str = "2y",
+    overlay_enabled_groups: Optional[List[str]] = None,
+    rebound_exposure: float = 0.75,
+    rebound_fast_window: int = 5,
+    rebound_lookback: int = 20,
+    min_rebound: float = 0.03,
+    min_fast_return: float = 0.02,
+    require_above_fast_ma: bool = True,
+    require_prior_drawdown: Optional[bool] = None,
+    drawdown_gate_lookback: Optional[int] = None,
+    min_prior_drawdown: Optional[float] = None,
+    max_overlay_holding_period: Optional[int] = None,
+    overlay_stop_loss: Optional[float] = None,
+    transaction_cost_bps: float = 5.0,
+    run_parameter_stability: bool = True,
+) -> Tuple[pd.DataFrame, Dict[str, object], pd.DataFrame]:
+    """
+    Run the group-aware rebound diagnostic on a basket of prepared assets.
+    """
+    asset_frames: Dict[str, pd.DataFrame] = {}
+
+    for symbol in symbols:
+        artefacts = run_analysis(
+            symbol=symbol,
+            period=period,
+            source_type=None,
+            use_fuzzy=False,
+            horizons=[5, 10],
+        )
+        asset_frames[symbol] = cast(pd.DataFrame, artefacts["df"])
+
+    latest_common_end = min(pd.Timestamp(frame.index.max()).normalize() for frame in asset_frames.values())
+    windows = build_recent_walk_forward_windows(latest_common_end)
+    diagnostic_params: Dict[str, object] = {
+        "overlay_enabled_groups": overlay_enabled_groups,
+        "rebound_exposure": rebound_exposure,
+        "fast_window": rebound_fast_window,
+        "drawdown_lookback": rebound_lookback,
+        "min_rebound": min_rebound,
+        "min_fast_return": min_fast_return,
+        "require_above_fast_ma": require_above_fast_ma,
+        "require_prior_drawdown": require_prior_drawdown,
+        "drawdown_gate_lookback": drawdown_gate_lookback,
+        "min_prior_drawdown": min_prior_drawdown,
+        "max_overlay_holding_period": max_overlay_holding_period,
+        "overlay_stop_loss": overlay_stop_loss,
+        "transaction_cost_bps": transaction_cost_bps,
+    }
+    comparison = run_walk_forward_diagnostics(
+        asset_frames,
+        windows=windows,
+        **diagnostic_params,
+    )
+    parameter_results: Dict[str, pd.DataFrame] = {}
+    if run_parameter_stability:
+        for name, overrides in _build_rebound_stability_variants(
+            rebound_exposure=rebound_exposure,
+            rebound_fast_window=rebound_fast_window,
+            rebound_lookback=rebound_lookback,
+            min_rebound=min_rebound,
+            min_fast_return=min_fast_return,
+            require_prior_drawdown=require_prior_drawdown,
+            drawdown_gate_lookback=drawdown_gate_lookback,
+            min_prior_drawdown=min_prior_drawdown,
+            max_overlay_holding_period=max_overlay_holding_period,
+            overlay_stop_loss=overlay_stop_loss,
+        ).items():
+            parameter_results[name] = run_walk_forward_diagnostics(
+                asset_frames,
+                windows=windows,
+                **{**diagnostic_params, **overrides},
+            )
+    promotion_eligible_groups = tuple(overlay_enabled_groups or ["indices", "mega_cap_tech"])
+    promotion = evaluate_research_grade_rebound_promotion(
+        comparison,
+        eligible_groups=promotion_eligible_groups,
+        required_transaction_cost_bps=transaction_cost_bps,
+        parameter_results=parameter_results,
+        require_parameter_stability=run_parameter_stability,
+    )
+    summary = summarize_group_rebound_results(comparison)
+    return comparison, promotion, summary
+
+
+def print_walk_forward_diagnostics_report(
+    symbols: List[str],
+    comparison: pd.DataFrame,
+    promotion: Dict[str, object],
+    summary: pd.DataFrame,
+) -> None:
+    """Print a compact walk-forward diagnostic report."""
+    print("\n" + "=" * 72)
+    print("Group Rebound Walk-Forward Diagnostics")
+    print("=" * 72)
+    print(f"Assets:        {', '.join(symbols)}")
+    print(f"Rows:          {len(comparison):,}")
+    print(f"Windows:       {', '.join(str(item) for item in comparison['window'].dropna().unique())}")
+
+    print("\nPromotion Gate")
+    print("-" * 72)
+    print(f"  Promote:                  {promotion['promote']}")
+    print(f"  Eligible improved share:  {_format_percentage(cast(float, promotion['eligible_improved_share']))}")
+    print(f"  Protected degraded share: {_format_percentage(cast(float, promotion['protected_degraded_share']))}")
+    print(f"  Worst drawdown delta:     {_format_percentage(cast(float, promotion['worst_drawdown_delta']))}")
+    if "windows_tested" in promotion:
+        print(
+            f"  Non-empty windows:        {promotion['windows_tested']}/"
+            f"{promotion.get('min_windows', 'n/a')}"
+        )
+    if "min_transaction_cost_bps" in promotion:
+        print(
+            f"  Cost check bps:           "
+            f"{_format_decimal(cast(float, promotion['min_transaction_cost_bps']), 2)} "
+            f"(required {_format_decimal(cast(float, promotion.get('required_transaction_cost_bps', 0.0)), 2)})"
+        )
+    if "recent_narrative_alignment_score" in promotion:
+        print(
+            f"  Recent narrative score:   "
+            f"{_format_decimal(cast(float, promotion['recent_narrative_alignment_score']), 2)} "
+            f"(current {_format_decimal(cast(float, promotion.get('current_recent_narrative_alignment_score', 0.0)), 2)})"
+        )
+    if "parameter_pass_share" in promotion:
+        print(
+            f"  Parameter pass share:     "
+            f"{_format_percentage(cast(float, promotion['parameter_pass_share']))}"
+        )
+    reasons = cast(List[str], promotion.get("reasons", []))
+    if reasons:
+        for reason in reasons:
+            print(f"  Blocker:                  {reason}")
+    else:
+        print("  Blocker:                  none")
+
+    print("\nGroup Candidate Summary")
+    print("-" * 72)
+    candidate = summary[summary["variant"] == "group_rebound"]
+    if candidate.empty:
+        print("  No candidate rows available.")
+        return
+
+    for _, row in candidate.iterrows():
+        label = f"{row.get('window', 'all')} / {row['group']}"
+        print(
+            f"  {label:28s} "
+            f"strategy={_format_percentage(row['mean_strategy_return'])} "
+            f"buy_hold={_format_percentage(row['mean_buy_hold_return'])} "
+            f"excess={_format_percentage(row['mean_excess_return'])} "
+            f"delta={_format_percentage(row['mean_strategy_delta_vs_current'])} "
+            f"enabled={int(row['overlay_enabled_count'])}/{int(row['asset_count'])}"
+        )
 
 
 def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
@@ -262,6 +607,14 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
         print(f"  Volatility:   {_format_decimal(df['volatility'].iloc[-1], 4)}")
     if "hurst" in df.columns and pd.notna(df["hurst"].iloc[-1]):
         print(f"  Hurst:        {_format_decimal(df['hurst'].iloc[-1], 3)}")
+    if "hurst_confirmed_regime" in df.columns:
+        print(f"  Hurst check:  {df['hurst_confirmed_regime'].iloc[-1]}")
+    if "lo_memory_regime" in df.columns:
+        print(f"  Lo R/S check: {df['lo_memory_regime'].iloc[-1]}")
+    if "survival_regime" in df.columns:
+        print(f"  Survival:     {df['survival_regime'].iloc[-1]}")
+    if "loss_cvar" in df.columns and pd.notna(df["loss_cvar"].iloc[-1]):
+        print(f"  Tail CVaR:    {_format_percentage(df['loss_cvar'].iloc[-1])}")
 
     if use_fuzzy and "fuzzy_primary_regime" in df.columns:
         print("\nFuzzy Memberships")
@@ -291,7 +644,7 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
         if overall_stats:
             print(
                 f"  Horizon {key}: mean={_format_percentage(overall_stats.get('mean', float('nan')))} "
-                f"win_rate={_format_percentage(overall_stats.get('positive_pct', float('nan')))}"
+                f"win_rate={_format_percentage_points(overall_stats.get('positive_pct', float('nan')))}"
             )
     print("  By regime:")
     for regime, stats in forward_analysis.items():
@@ -302,7 +655,7 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
             continue
         print(
             f"    {regime:20s}: mean={_format_percentage(horizon_stats.get('mean', float('nan')))} "
-            f"win_rate={_format_percentage(horizon_stats.get('positive_pct', float('nan')))}"
+            f"win_rate={_format_percentage_points(horizon_stats.get('positive_pct', float('nan')))}"
         )
 
     print("\nTransition Matrix")
@@ -538,6 +891,11 @@ def generate_visualizations(
 
     Charts are displayed by default and can optionally be saved to disk.
     """
+    if show and not _ensure_interactive_matplotlib_backend():
+        print(
+            "Warning: Matplotlib is using a non-interactive backend. "
+            "Install/enable a GUI backend (Qt/Tk/GTK) to display plots with plt.show()."
+        )
     import matplotlib.pyplot as plt
     from matplotlib.figure import Figure
 
@@ -612,6 +970,39 @@ def generate_visualizations(
 def main() -> None:
     """Entry point for the CLI."""
     args = parse_arguments()
+    if args.walk_forward_diagnostics:
+        symbols = args.diagnostic_symbols or DEFAULT_DIAGNOSTIC_SYMBOLS
+        try:
+            comparison, promotion, summary = run_walk_forward_diagnostics_report(
+                symbols=symbols,
+                period=args.diagnostic_period,
+                overlay_enabled_groups=args.overlay_enabled_groups,
+                rebound_exposure=args.rebound_exposure,
+                rebound_fast_window=args.rebound_fast_window,
+                rebound_lookback=args.rebound_lookback,
+                min_rebound=args.min_rebound,
+                min_fast_return=args.min_fast_return,
+                require_above_fast_ma=not args.no_rebound_fast_ma,
+                require_prior_drawdown=not args.no_drawdown_gate,
+                drawdown_gate_lookback=args.drawdown_gate_lookback,
+                min_prior_drawdown=args.min_prior_drawdown,
+                max_overlay_holding_period=args.max_overlay_holding_period,
+                overlay_stop_loss=args.overlay_stop_loss,
+                transaction_cost_bps=args.transaction_cost_bps,
+                run_parameter_stability=not args.no_parameter_stability_check,
+            )
+        except Exception as exc:
+            print(f"Error: {exc}")
+            raise SystemExit(1) from exc
+
+        print_walk_forward_diagnostics_report(symbols, comparison, promotion, summary)
+        if args.diagnostic_csv:
+            output_path = Path(args.diagnostic_csv).expanduser().resolve()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            comparison.to_csv(output_path, index=False)
+            print(f"\nSaved diagnostic rows: {output_path}")
+        return
+
     symbol = args.symbol or DEFAULT_SYMBOL
     if args.symbol is None:
         print(f"No symbol supplied; defaulting to {DEFAULT_SYMBOL}.")
