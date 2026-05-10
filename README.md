@@ -10,6 +10,7 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
 
 - **Six Market Regimes**: Classification into Bull Quiet/Volatile, Bear Quiet/Volatile, and Sideways Quiet/Volatile states
 - **Fractal Analysis**: Hurst exponent computation to identify persistent trends vs mean-reverting behavior
+- **Tail-Risk Survival Layer**: CVaR, VaR, Hill tail-index, kurtosis, drawdown, and survival-state diagnostics
 - **Fuzzy Logic**: Probabilistic regime classification providing degrees of membership rather than binary states
 - **Forward Returns Analysis**: Statistical analysis of future returns conditioned on current regime
 - **Markov Transitions**: Regime transition probability matrices and persistence analysis
@@ -38,6 +39,7 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
 
 4. **Statistical Analysis**
    - Forward return distributions by regime
+   - Survival-aware rebound overlay guard that blocks added exposure during fragile tail-risk states
    - Markov transition matrices
    - Regime segment analysis
    - Expected regime durations
@@ -95,7 +97,7 @@ Programmatic usage (for notebooks / pipelines):
 ```python
 from juliams.config import JMSConfig
 from juliams.data import DataFetcherFactory
-from juliams.features import compute_trend_features, compute_volatility_features, compute_hurst_features
+from juliams.features import compute_trend_features, compute_volatility_features, compute_hurst_features, compute_tail_risk_features
 from juliams.regimes import RegimeClassifier
 
 config = JMSConfig()
@@ -107,6 +109,7 @@ df = fetcher.fetch_data("AAPL", period=source_cfg["default_period"])
 df = compute_trend_features(df, source_cfg)
 df = compute_volatility_features(df, source_cfg)
 df = compute_hurst_features(df, source_cfg)
+df = compute_tail_risk_features(df, source_cfg)
 
 clf = RegimeClassifier(
     trend_threshold_up=source_cfg["trend_threshold_up"],
@@ -128,7 +131,7 @@ python main.py AAPL --period 2y
 This will:
 1. Auto-detect the correct data source (Yahoo Finance for AAPL)
 2. Fetch 2 years of price history (cached when possible)
-3. Compute trend, volatility, Hurst, and fractal features
+3. Compute trend, volatility, Hurst, fractal, and tail-risk survival features
 4. Classify regimes (crisp + optional fuzzy)
 5. Analyse forward returns and regime transitions
 6. Render the legacy 4-panel dashboard (plus optional extended plots)
@@ -180,7 +183,8 @@ juliams/
 │   ├── trend.py           # Trend analysis
 │   ├── volatility.py      # Volatility indicators
 │   ├── hurst.py           # Hurst exponent
-│   └── fractal.py         # Fractal filtering
+│   ├── fractal.py         # Fractal filtering
+│   └── tail.py            # Tail-risk survival diagnostics
 ├── regimes/
 │   ├── classification.py  # Crisp regime classification
 │   └── fuzzy.py           # Fuzzy logic system
@@ -217,6 +221,11 @@ The system classifies markets into six regimes:
 - H < 0.45: Mean-reverting
 - H ≈ 0.5: Random walk
 
+### Tail-Risk Survival
+- `compute_tail_risk_features` adds loss-side VaR, CVaR / expected shortfall, Hill left-tail index, excess kurtosis, rolling max drawdown, `survival_score`, and `survival_regime`.
+- `survival_regime` flags fragile states where rebound overlays should not add exposure merely because price momentum improved.
+- Group-aware rebound diagnostics now report `survival_gate_share` and keep prior behavior for DataFrames that do not include survival columns.
+
 ### Fuzzy Membership
 - Probabilistic regime assessment
 - Degrees of membership in each regime
@@ -233,6 +242,7 @@ Key parameters in `JMSConfig`:
 - `trend_threshold_up/down`: Global thresholds for trend classification
 - `volatility_percentile`: Global percentile for high/low volatility split
 - `hurst_threshold`: Threshold for fractal memory filtering
+- `tail_risk_window`, `tail_cvar_alpha`, `hill_tail_fraction`, and survival thresholds: control non-Gaussian tail-risk diagnostics
 - `use_fuzzy`: Enable fuzzy logic classification (default: True)
 
 Use `config.get_source_config('stock')` or `'crypto'` to obtain a ready-to-use dictionary for each data source.
@@ -301,4 +311,3 @@ For questions or support, please open an issue on GitHub.
 ---
 
 **Disclaimer**: This library is for educational and research purposes only. Not financial advice. Use at your own risk in trading or investment decisions.
-

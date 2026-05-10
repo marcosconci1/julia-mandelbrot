@@ -32,6 +32,7 @@ from .features.trend import compute_trend_features
 from .features.volatility import compute_volatility_features
 from .features.hurst import compute_hurst_features
 from .features.fractal import compute_fractal_features
+from .features.tail import compute_tail_risk_features
 
 # Import regime classification
 from .regimes.classification import RegimeClassifier
@@ -39,14 +40,56 @@ from .regimes.fuzzy import FuzzyRegimeClassifier
 
 # Import analysis modules
 from .analysis.forward_returns import compute_forward_returns, analyze_forward_returns_by_regime
+from .analysis.backtest import backtest_regime_strategy, build_backtest_narrative, regime_exposure
+from .analysis.diagnostics import (
+    backtest_rebound_overlay,
+    compare_exposure_maps,
+    compare_rebound_overlay,
+    compute_rebound_signal,
+    compute_regime_forward_diagnostics,
+    measure_bullish_turn_lag,
+    summarize_group_narratives,
+    summarize_variant_comparison_by_group,
+)
+from .analysis.group_rebound import (
+    DEFAULT_ASSET_GROUPS,
+    DEFAULT_GROUP_OVERLAY_PROFILES,
+    ReboundOverlayProfile,
+    asset_group_for_symbol,
+    compare_group_aware_rebound,
+    run_walk_forward_group_rebound,
+    summarize_group_rebound_results,
+)
+from .analysis.walk_forward import (
+    DEFAULT_WALK_FORWARD_WINDOW_SPECS,
+    add_narrative_alignment,
+    build_recent_walk_forward_windows,
+    compare_group_rebound_overlay,
+    evaluate_group_rebound_promotion,
+    evaluate_research_grade_rebound_promotion,
+    narrative_alignment_score,
+    run_walk_forward_diagnostics,
+)
 from .analysis.transitions import compute_transition_matrix
 from .analysis.segments import identify_segments, compute_segment_statistics
 
 # Import visualization
 try:
-    from .visualization.charts import plot_price_with_regimes
-    from .visualization.plots import plot_forward_return_distributions, plot_transition_matrix
-    from .visualization.gauges import plot_fuzzy_gauge
+    from .visualization.charts import (
+        plot_price_with_regimes,
+        plot_regime_timeline,
+        plot_technical_overlays,
+    )
+    from .visualization.plots import (
+        plot_forward_return_distributions,
+        plot_transition_matrix,
+        plot_segment_statistics,
+    )
+    from .visualization.gauges import (
+        plot_fuzzy_gauge,
+        plot_regime_probabilities,
+        create_nowcast_dashboard,
+    )
     VISUALIZATION_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Visualization modules not fully available: {e}")
@@ -54,7 +97,15 @@ except ImportError as e:
 
 # Import export functionality
 try:
-    from .output.export import export_full_analysis
+    from .output.export import (
+        export_daily_regime_csv,
+        export_segment_summary_csv,
+        export_transition_matrix_csv,
+        export_forward_stats_csv,
+        export_fuzzy_nowcast,
+        export_full_analysis,
+        generate_text_report,
+    )
     EXPORT_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Export functionality not available: {e}")
@@ -132,6 +183,9 @@ class JuliaMandelbrotSystem:
         
         # Compute fractal filter
         self.df = compute_fractal_features(self.df, self.config.to_dict())
+
+        # Compute survival/tail-risk diagnostics
+        self.df = compute_tail_risk_features(self.df, self.config.to_dict())
         
         return self.df
         
@@ -447,6 +501,7 @@ __all__ = [
     'compute_volatility_features',
     'compute_hurst_features',
     'compute_fractal_features',
+    'compute_tail_risk_features',
     
     # Classification
     'RegimeClassifier',
@@ -455,6 +510,32 @@ __all__ = [
     # Analysis
     'compute_forward_returns',
     'analyze_forward_returns_by_regime',
+    'backtest_regime_strategy',
+    'build_backtest_narrative',
+    'regime_exposure',
+    'backtest_rebound_overlay',
+    'compare_exposure_maps',
+    'compare_rebound_overlay',
+    'compute_rebound_signal',
+    'compute_regime_forward_diagnostics',
+    'measure_bullish_turn_lag',
+    'summarize_group_narratives',
+    'summarize_variant_comparison_by_group',
+    'DEFAULT_ASSET_GROUPS',
+    'DEFAULT_GROUP_OVERLAY_PROFILES',
+    'DEFAULT_WALK_FORWARD_WINDOW_SPECS',
+    'ReboundOverlayProfile',
+    'add_narrative_alignment',
+    'asset_group_for_symbol',
+    'build_recent_walk_forward_windows',
+    'compare_group_aware_rebound',
+    'compare_group_rebound_overlay',
+    'evaluate_group_rebound_promotion',
+    'evaluate_research_grade_rebound_promotion',
+    'narrative_alignment_score',
+    'run_walk_forward_group_rebound',
+    'run_walk_forward_diagnostics',
+    'summarize_group_rebound_results',
     'compute_transition_matrix',
     'identify_segments',
     'compute_segment_statistics',
