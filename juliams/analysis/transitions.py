@@ -139,6 +139,15 @@ def analyze_regime_persistence(transition_matrix: pd.DataFrame) -> Dict:
     Returns:
         Dictionary with persistence metrics
     """
+    if transition_matrix.empty:
+        return {
+            'overall': {
+                'avg_self_transition': np.nan,
+                'max_persistence_regime': None,
+                'min_persistence_regime': None,
+            }
+        }
+
     persistence = {}
     
     # Diagonal elements represent staying in same regime

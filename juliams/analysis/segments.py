@@ -179,7 +179,20 @@ def analyze_regime_segments(df: pd.DataFrame,
     segments = identify_regime_segments(df, regime_col, min_length)
     
     if not segments:
-        return {'segments': [], 'statistics': {}}
+        return {
+            'segments': [],
+            'total_segments': 0,
+            'statistics': {
+                'overall': {
+                    'total_segments': 0,
+                    'avg_segment_length': 0,
+                    'median_segment_length': 0,
+                    'max_segment_length': 0,
+                    'min_segment_length': 0,
+                    'std_segment_length': 0
+                }
+            }
+        }
     
     # Convert to DataFrame for easier analysis
     segments_df = pd.DataFrame(segments)

@@ -118,6 +118,10 @@ class FuzzyRegimeClassifier:
         Returns:
             Membership degree [0, 1]
         """
+        if a == b and x <= b:
+            return 1.0 if x >= a else 0.0
+        if c == d and x >= c:
+            return 1.0 if x <= d else 0.0
         if x <= a or x >= d:
             return 0.0
         elif a < x <= b:
