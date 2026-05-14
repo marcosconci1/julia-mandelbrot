@@ -44,6 +44,7 @@ from .features.tail import compute_tail_risk_features
 # Import regime classification
 from .regimes.classification import RegimeClassifier
 from .regimes.fuzzy import FuzzyRegimeClassifier
+from .regimes.quality import add_indicator_signal_flags
 
 # Import analysis modules
 from .analysis.forward_returns import compute_forward_returns, analyze_forward_returns_by_regime
@@ -393,6 +394,12 @@ class JuliaMandelbrotSystem:
                 cooldown_days=getattr(cfg, "consensus_cooldown_days", 10),
             )
 
+        self.df = add_indicator_signal_flags(
+            self.df,
+            self.config.to_dict(),
+            causal=True,
+        )
+
         return self.df
     
     def analyze_regimes(self) -> Dict[str, Any]:
@@ -667,6 +674,7 @@ __all__ = [
     # Classification
     'RegimeClassifier',
     'FuzzyRegimeClassifier',
+    'add_indicator_signal_flags',
     
     # Analysis
     'compute_forward_returns',

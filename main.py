@@ -32,6 +32,7 @@ from juliams.features import (
 )
 from juliams.regimes import RegimeClassifier
 from juliams.regimes.fuzzy import compute_fuzzy_features
+from juliams.regimes.quality import add_indicator_signal_flags
 from juliams.analysis import (
     analyze_forward_returns_by_regime,
     build_recent_walk_forward_windows,
@@ -587,6 +588,8 @@ def run_analysis(
         n_events = int(df["consensus_event"].sum())
         overlays_used.append(f"consensus(events={n_events})")
 
+    df = add_indicator_signal_flags(df, source_config, causal=True)
+
     # Forward returns & diagnostics
     horizons_to_use = horizons or source_config.get("forward_return_horizons", [5, 10])
     df = compute_forward_returns(df, horizons=horizons_to_use)
@@ -857,6 +860,9 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
     current_regime = df["regime"].iloc[-1]
     current_regime_name = df["regime_name"].iloc[-1]
     print(f"  Regime:       {current_regime_name} ({current_regime})")
+    if "valid_signal" in df.columns:
+        state = "ready" if bool(df["valid_signal"].iloc[-1]) else "warming up"
+        print(f"  Signal:       {state}")
     if "trend_strength" in df.columns:
         print(f"  Trend:        {_format_decimal(df['trend_strength'].iloc[-1], 3)}")
     if "volatility" in df.columns:

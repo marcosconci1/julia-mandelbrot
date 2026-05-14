@@ -8,9 +8,11 @@ from .classification import (
     classify_market_regime,
     get_regime_statistics
 )
+from .quality import add_indicator_signal_flags
 
 __all__ = [
     'RegimeClassifier',
     'classify_market_regime',
-    'get_regime_statistics'
+    'get_regime_statistics',
+    'add_indicator_signal_flags',
 ]
