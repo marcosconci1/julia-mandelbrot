@@ -1,6 +1,8 @@
 # Julia Mandelbrot System
 
-A Python library for financial time series analysis that implements a comprehensive market regime classification system combining trend/volatility analysis, fractal (Hurst) analysis, and fuzzy logic for probabilistic market state assessment.
+A Python library for market regime indicators. It combines trend/volatility analysis, fractal (Hurst) analysis, tail-risk diagnostics, fuzzy memberships, and change-point overlays into a regime nowcast.
+
+This repo does not define trading entries, exits, position sizing, or risk limits. It produces indicator columns that another system can consume.
 
 <img width="941" height="990" alt="Figure_1" src="https://github.com/user-attachments/assets/8e445176-3e86-401c-80cc-671094fe3597" />
 
@@ -11,9 +13,10 @@ The Julia Mandelbrot System provides a modular framework for analyzing financial
 - **Six Market Regimes**: Classification into Bull Quiet/Volatile, Bear Quiet/Volatile, and Sideways Quiet/Volatile states
 - **Fractal Analysis**: Hurst exponent computation to identify persistent trends vs mean-reverting behavior
 - **Tail-Risk Survival Layer**: CVaR, VaR, Hill tail-index, kurtosis, drawdown, and survival-state diagnostics
-- **Fuzzy Logic**: Probabilistic regime classification providing degrees of membership rather than binary states
+- **Fuzzy Logic**: Probabilistic regime classification, with raw or percentile-based volatility inputs
 - **Adaptive Overlays**: Optional data driven thresholds, EWMA trend, Markov switching variance, and Bayesian change point detection that can run alongside the legacy classifier
-- **Forward Returns Analysis**: Statistical analysis of future returns conditioned on current regime
+- **Indicator Readiness**: Warmup and valid-signal columns so startup rows are easy to filter
+- **Forward Returns Analysis**: Research diagnostics for checking how regimes behaved historically
 - **Markov Transitions**: Regime transition probability matrices and persistence analysis
 - **Rich Visualizations**: Comprehensive charts showing price, indicators, and regime evolution (legacy dashboard + optional extended plots)
 - **Unified CLI**: Single entry point that auto-detects the correct data source (Yahoo Finance for equities, Binance for crypto)
@@ -81,6 +84,9 @@ python main.py EURUSD=X --period 1y
 # Analyse futures contracts
 python main.py GC=F --period 6mo  # Gold futures
 python main.py ES=F --period 3mo  # S&P 500 E-mini futures
+
+# Use a bar interval and an indicator calibration profile
+python main.py GC=F --period 6mo --profile gold_h4 --interval 4h
 ```
 
 ## Supported Instruments
@@ -93,19 +99,23 @@ The system supports multiple asset classes through automatic source detection:
 - **Forex**: EURUSD=X, GBPUSD=X, BRL=X (via Yahoo Finance)
 - **Futures**: GC=F (Gold), ES=F (E-mini S&P), CL=F (Crude Oil)
 
+Forex pairs with strong external drivers, such as `BRL=X`, can be labeled by the indicator, but should be calibrated and interpreted on their own terms. Do not read an equity-index regime profile as a rule for those pairs.
+
 Programmatic usage (for notebooks / pipelines):
 
 ```python
 from juliams.config import JMSConfig
 from juliams.data import DataFetcherFactory
 from juliams.features import compute_trend_features, compute_volatility_features, compute_hurst_features, compute_tail_risk_features
-from juliams.regimes import RegimeClassifier
+from juliams.profiles import apply_indicator_profile
+from juliams.regimes import RegimeClassifier, add_indicator_signal_flags
 
 config = JMSConfig()
+apply_indicator_profile(config, "equity_index_h4")
 source_cfg = config.get_source_config("stock")
 
 fetcher = DataFetcherFactory.create(symbol="AAPL", config=config)
-df = fetcher.fetch_data("AAPL", period=source_cfg["default_period"])
+df = fetcher.fetch_data("AAPL", period=source_cfg["default_period"], interval=source_cfg["timeframe"])
 
 df = compute_trend_features(df, source_cfg)
 df = compute_volatility_features(df, source_cfg)
@@ -118,7 +128,9 @@ clf = RegimeClassifier(
     volatility_threshold=source_cfg["volatility_percentile"],
 )
 df = clf.classify(df)
+df = add_indicator_signal_flags(df, source_cfg)
 print(f"Current regime: {df['regime_name'].iloc[-1]}")
+print(f"Ready: {df['valid_signal'].iloc[-1]}")
 ```
 
 ## Detailed Usage
@@ -134,8 +146,48 @@ This will:
 2. Fetch 2 years of price history (cached when possible)
 3. Compute trend, volatility, Hurst, fractal, and tail-risk survival features
 4. Classify regimes (crisp + optional fuzzy)
-5. Analyse forward returns and regime transitions
-6. Render the legacy 4-panel dashboard (plus optional extended plots)
+5. Add warmup and valid-signal flags
+6. Analyse forward returns and regime transitions
+7. Render the legacy 4-panel dashboard (plus optional extended plots)
+
+### Indicator Profiles
+
+Profiles are calibration presets. They set bar interval, feature windows, volatility percentile lookback, tail-risk window, and fuzzy volatility input. They do not contain trade rules.
+
+Available profiles:
+
+| Profile | Timeframe | Notes |
+|---------|-----------|-------|
+| `equity_index_h1` | 1h | Intraday index calibration |
+| `equity_index_h4` | 4h | Larger intraday index calibration |
+| `gold_h4` | 4h | Gold/futures-style calibration |
+| `crypto_h4` | 4h | 24/7 crypto calibration |
+| `fx_daily` | 1d | Daily FX calibration |
+
+Example:
+
+```bash
+python main.py AAPL --profile equity_index_h4
+```
+
+Use `--interval` when you want to override the profile interval:
+
+```bash
+python main.py AAPL --profile equity_index_h4 --interval 1h
+```
+
+### Readiness Columns
+
+The classifier adds four columns that help consumers decide whether a row is usable:
+
+| Column | Meaning |
+|--------|---------|
+| `calibration_observations` | Number of bars seen up to this row |
+| `warmup_bars` | Largest configured lookback used by the indicator |
+| `warmup_complete` | True once enough bars have accumulated |
+| `valid_signal` | True when warmup is complete and the core regime is not `Unknown` |
+
+The rolling calculations are right-aligned and intended for live-style use after the current bar is known. Consumers that trade on these columns should still apply their own signal lag and execution rules outside this repo.
 
 ### Adaptive Overlays
 
@@ -178,9 +230,11 @@ from juliams.config import JMSConfig
 config = JMSConfig(
     trend_window=30,
     volatility_window=20,
+    volatility_percentile_lookback=250,
     hurst_window=120,
     trend_threshold_up=0.3,
     use_fuzzy=True,
+    fuzzy_volatility_source="volatility_percentile",
 )
 
 crypto_cfg = config.get_source_config("crypto")
@@ -208,6 +262,7 @@ for ticker, df in datasets.items():
 ```
 juliams/
 ├── config.py              # Global + source-specific configuration
+├── profiles.py            # Indicator calibration profiles
 ├── data/
 │   ├── base.py            # Abstract data-source interface
 │   ├── stock.py           # Yahoo Finance implementation
@@ -221,7 +276,8 @@ juliams/
 │   └── tail.py            # Tail-risk survival diagnostics
 ├── regimes/
 │   ├── classification.py  # Crisp regime classification
-│   └── fuzzy.py           # Fuzzy logic system
+│   ├── fuzzy.py           # Fuzzy logic system
+│   └── quality.py         # Warmup and valid-signal flags
 ├── analysis/
 │   ├── forward_returns.py # Forward return analysis
 │   ├── transitions.py     # Markov transitions
