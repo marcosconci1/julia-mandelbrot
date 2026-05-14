@@ -9,10 +9,12 @@ from typing import Dict, Optional, Tuple
 
 @dataclass
 class StockConfig:
+    timeframe: str = "1d"
     trend_window: int = 20
     volatility_window: int = 20
     volatility_method: str = "std"
     volatility_annualize: bool = False
+    volatility_percentile_lookback: int = 252
     hurst_window: int = 100
     volatility_baseline_window: int = 100
     trend_threshold_up: float = 0.2
@@ -38,10 +40,12 @@ class StockConfig:
 
 @dataclass
 class CryptoConfig:
+    timeframe: str = "1d"
     trend_window: int = 14
     volatility_window: int = 14
     volatility_method: str = "std"
     volatility_annualize: bool = False
+    volatility_percentile_lookback: int = 252
     hurst_window: int = 75
     volatility_baseline_window: int = 75
     trend_threshold_up: float = 0.2
@@ -70,10 +74,12 @@ class JMSConfig:
     stock: Optional[StockConfig] = None
     crypto: Optional[CryptoConfig] = None
 
+    timeframe: str = "1d"
     trend_window: int = 20
     volatility_window: int = 20
     volatility_method: str = "std"
     volatility_annualize: bool = False
+    volatility_percentile_lookback: int = 252
     hurst_window: int = 100
     volatility_baseline_window: int = 100
     trend_threshold_up: float = 0.2
@@ -168,10 +174,12 @@ class JMSConfig:
             return self.to_dict()
 
         source_dict = {
+            "timeframe": cfg.timeframe,
             "trend_window": cfg.trend_window,
             "volatility_window": cfg.volatility_window,
             "volatility_method": cfg.volatility_method,
             "volatility_annualize": cfg.volatility_annualize,
+            "volatility_percentile_lookback": cfg.volatility_percentile_lookback,
             "hurst_window": cfg.hurst_window,
             "volatility_baseline_window": cfg.volatility_baseline_window,
             "trend_threshold_up": cfg.trend_threshold_up,
@@ -215,10 +223,12 @@ class JMSConfig:
 
     def to_dict(self) -> dict:
         return {
+            "timeframe": self.timeframe,
             "trend_window": self.trend_window,
             "volatility_window": self.volatility_window,
             "volatility_method": self.volatility_method,
             "volatility_annualize": self.volatility_annualize,
+            "volatility_percentile_lookback": self.volatility_percentile_lookback,
             "hurst_window": self.hurst_window,
             "volatility_baseline_window": self.volatility_baseline_window,
             "trend_threshold_up": self.trend_threshold_up,
@@ -288,6 +298,7 @@ class JMSConfig:
 
         positive(self.trend_window, "trend_window")
         positive(self.volatility_window, "volatility_window")
+        positive(self.volatility_percentile_lookback, "volatility_percentile_lookback")
         positive(self.hurst_window, "hurst_window")
 
         if self.trend_threshold_up <= 0:

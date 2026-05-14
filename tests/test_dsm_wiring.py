@@ -179,7 +179,7 @@ class _StubSource:
     def __init__(self, df: pd.DataFrame):
         self._df = df
 
-    def fetch_data(self, symbol, period=None, start=None, end=None):
+    def fetch_data(self, symbol, period=None, start=None, end=None, interval="1d"):
         return self._df.copy()
 
 

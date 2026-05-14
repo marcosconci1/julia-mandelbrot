@@ -163,7 +163,8 @@ def compute_volatility_percentile(volatility: pd.Series,
     Returns:
         Series with percentile values (0-1)
     """
-    percentile = volatility.rolling(window=lookback, min_periods=max(20, lookback//10)).apply(
+    min_periods = _bounded_min_periods(lookback, max(20, lookback // 10))
+    percentile = volatility.rolling(window=lookback, min_periods=min_periods).apply(
         lambda x: (x.iloc[-1] > x).sum() / len(x) if len(x) > 0 else 0.5,
         raw=False
     )
@@ -173,7 +174,8 @@ def compute_volatility_percentile(volatility: pd.Series,
 def compute_volatility_regime(volatility: pd.Series,
                              method: str = 'percentile',
                              threshold: float = 0.67,
-                             baseline_window: int = 100) -> pd.Series:
+                             baseline_window: int = 100,
+                             lookback: int = 252) -> pd.Series:
     """
     Classify volatility into High/Low regimes.
     
@@ -182,13 +184,14 @@ def compute_volatility_regime(volatility: pd.Series,
         method: Method for classification ('percentile', 'absolute', 'adaptive')
         threshold: Threshold for classification
         baseline_window: Window for adaptive baseline calculation
+        lookback: Rolling window for percentile classification
     
     Returns:
         Series with volatility regime classification ('High' or 'Low')
     """
     if method == 'percentile':
         # Use percentile of historical volatility
-        vol_percentile = compute_volatility_percentile(volatility, lookback=252)
+        vol_percentile = compute_volatility_percentile(volatility, lookback=lookback)
         regime = vol_percentile.apply(
             lambda x: 'Unknown' if pd.isna(x) else ('High' if x > threshold else 'Low')
         )
@@ -235,6 +238,7 @@ def compute_volatility_features(df: pd.DataFrame,
             'volatility_method': 'std',
             'volatility_annualize': False,
             'volatility_baseline_window': 100,
+            'volatility_percentile_lookback': 252,
             'volatility_percentile': 0.67,
             'atr_window': 14
         }
@@ -276,9 +280,10 @@ def compute_volatility_features(df: pd.DataFrame,
         df['atr_pct'] = df['atr'] / df['Close'] * 100
     
     # Compute volatility percentile rank
+    percentile_lookback = config.get('volatility_percentile_lookback', 252)
     df['volatility_percentile'] = compute_volatility_percentile(
         df['volatility'],
-        lookback=252
+        lookback=percentile_lookback
     )
     
     # Compute volatility baseline (adaptive)
@@ -292,7 +297,8 @@ def compute_volatility_features(df: pd.DataFrame,
     df['volatility_regime'] = compute_volatility_regime(
         df['volatility'],
         method='percentile',
-        threshold=config.get('volatility_percentile', 0.67)
+        threshold=config.get('volatility_percentile', 0.67),
+        lookback=percentile_lookback,
     )
     
     # Additional volatility metrics
@@ -308,8 +314,14 @@ def compute_volatility_features(df: pd.DataFrame,
     df['volatility_change'] = df['volatility'].pct_change(fill_method=None)
     
     # Volatility z-score (standardized volatility)
-    vol_mean = df['volatility'].rolling(window=252, min_periods=20).mean()
-    vol_std = df['volatility'].rolling(window=252, min_periods=20).std()
+    df['volatility_percentile_lookback'] = percentile_lookback
+    zscore_min_periods = _bounded_min_periods(percentile_lookback, 20)
+    vol_mean = df['volatility'].rolling(
+        window=percentile_lookback, min_periods=zscore_min_periods
+    ).mean()
+    vol_std = df['volatility'].rolling(
+        window=percentile_lookback, min_periods=zscore_min_periods
+    ).std()
     # Avoid division by zero
     vol_std = vol_std.replace(0, np.nan)
     df['volatility_zscore'] = (df['volatility'] - vol_mean) / vol_std

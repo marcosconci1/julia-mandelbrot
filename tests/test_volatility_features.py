@@ -74,3 +74,21 @@ def test_volatility_features_can_classify_with_realized_volatility():
     assert "realized_variance" in features.columns
     assert "realized_volatility" in features.columns
     assert np.isclose(features["volatility"].iloc[3], features["realized_volatility"].iloc[3])
+
+
+def test_volatility_percentile_lookback_is_configurable():
+    close = np.linspace(100.0, 120.0, 40)
+    df = pd.DataFrame({"Close": close})
+
+    features = compute_volatility_features(
+        df,
+        config={
+            "volatility_window": 2,
+            "volatility_percentile_lookback": 10,
+            "volatility_baseline_window": 10,
+        },
+    )
+
+    assert features["volatility_percentile_lookback"].iloc[-1] == 10
+    assert pd.notna(features["volatility_percentile"].iloc[-1])
+    assert features["volatility_regime"].iloc[-1] in {"High", "Low"}

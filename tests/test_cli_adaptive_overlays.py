@@ -57,6 +57,7 @@ class _StubSource:
         period=None,
         start=None,
         end=None,
+        interval="1d",
     ):
         return self._df.copy()
 
@@ -104,6 +105,19 @@ def test_parser_accepts_all_adaptive_flags():
     assert args.min_dwell_days == 5
 
 
+def test_parser_accepts_indicator_interval_and_profile():
+    argv = [
+        "main.py", "AAPL",
+        "--interval", "4h",
+        "--profile", "equity_index_h4",
+        "--no-plot",
+    ]
+    with patch.object(sys, "argv", argv):
+        args = cli_main.parse_arguments()
+    assert args.interval == "4h"
+    assert args.profile == "equity_index_h4"
+
+
 def test_parser_defaults_preserve_legacy_behaviour():
     argv = ["main.py", "AAPL", "--no-plot"]
     with patch.object(sys, "argv", argv):
@@ -129,6 +143,33 @@ def test_run_analysis_default_omits_overlay_columns(stub_fetcher_factory):
         "bocpd_change_prob",
     }
     assert not (forbidden & set(df.columns))
+    assert artefacts["overlays_used"] == []
+
+
+def test_run_analysis_uses_profile_interval_when_not_overridden():
+    captured = {}
+    df = _synthetic_ohlcv()
+
+    class CapturingSource:
+        def fetch_data(self, symbol, period=None, start=None, end=None, interval="1d"):
+            captured["interval"] = interval
+            return df.copy()
+
+    with patch.object(
+        cli_main.DataFetcherFactory,
+        "create",
+        return_value=CapturingSource(),
+    ):
+        artefacts = cli_main.run_analysis(
+            symbol="AAPL",
+            period="2y",
+            profile="equity_index_h4",
+            use_fuzzy=False,
+        )
+
+    assert captured["interval"] == "4h"
+    assert artefacts["interval"] == "4h"
+    assert artefacts["profile"] == "equity_index_h4"
     assert artefacts["overlays_used"] == []
 
 

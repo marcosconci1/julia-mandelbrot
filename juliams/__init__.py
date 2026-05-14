@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 # Import configuration
 from .config import JMSConfig, DEFAULT_CONFIG
+from .profiles import (
+    INDICATOR_PROFILES,
+    IndicatorProfile,
+    apply_indicator_profile,
+    available_indicator_profiles,
+    get_indicator_profile,
+)
 
 # Import data fetching
 from .data import DataFetcher, fetch_data
@@ -137,8 +144,14 @@ class JuliaMandelbrotSystem:
         self.forward_stats = None
         self.fuzzy_probabilities = None
         
-    def fetch_data(self, ticker: str, period: str = '2y', 
-                  start: Optional[str] = None, end: Optional[str] = None) -> pd.DataFrame:
+    def fetch_data(
+        self,
+        ticker: str,
+        period: str = '2y',
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        interval: Optional[str] = None,
+    ) -> pd.DataFrame:
         """
         Fetch historical data for analysis.
         
@@ -152,13 +165,23 @@ class JuliaMandelbrotSystem:
             Start date (YYYY-MM-DD)
         end : str, optional
             End date (YYYY-MM-DD)
+        interval : str, optional
+            Bar interval, such as '1h', '4h', or '1d'
             
         Returns:
         --------
         pd.DataFrame : Historical price data
         """
         self.ticker = ticker
-        self.df = self.data_fetcher.fetch_data(ticker, period=period, start=start, end=end)
+        if interval is not None:
+            self.config.timeframe = interval
+        self.df = self.data_fetcher.fetch_data(
+            ticker,
+            period=period,
+            start=start,
+            end=end,
+            interval=interval or self.config.timeframe,
+        )
         return self.df
     
     def compute_features(self) -> pd.DataFrame:
@@ -624,6 +647,11 @@ __all__ = [
     # Configuration
     'JMSConfig',
     'DEFAULT_CONFIG',
+    'INDICATOR_PROFILES',
+    'IndicatorProfile',
+    'apply_indicator_profile',
+    'available_indicator_profiles',
+    'get_indicator_profile',
     
     # Data
     'DataFetcher',

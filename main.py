@@ -18,6 +18,10 @@ import pandas as pd
 
 from juliams.config import JMSConfig
 from juliams.data import DataFetcherFactory
+from juliams.profiles import (
+    apply_indicator_profile,
+    available_indicator_profiles,
+)
 from juliams.data.utils import detect_source_type
 from juliams.features import (
     compute_fractal_features,
@@ -112,6 +116,15 @@ def parse_arguments() -> argparse.Namespace:
         "--source-type",
         choices=["stock", "crypto"],
         help="Override automatic source detection.",
+    )
+    parser.add_argument(
+        "--interval",
+        help="Bar interval to request from the data source, such as 1h, 4h, or 1d.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=tuple(available_indicator_profiles()),
+        help="Indicator calibration profile. Sets feature windows, timeframe, and fuzzy calibration.",
     )
     parser.add_argument(
         "--no-fuzzy",
@@ -433,6 +446,8 @@ def run_analysis(
     start: Optional[str] = None,
     end: Optional[str] = None,
     source_type: Optional[str] = None,
+    interval: Optional[str] = None,
+    profile: Optional[str] = None,
     use_fuzzy: bool = True,
     horizons: Optional[List[int]] = None,
     *,
@@ -462,8 +477,11 @@ def run_analysis(
     and metadata for downstream reporting.
     """
     config = JMSConfig()
+    if profile is not None:
+        apply_indicator_profile(config, profile)
     resolved_source, source_note = resolve_source(symbol, source_type)
     source_config = config.get_source_config(resolved_source)
+    resolved_interval = interval or str(source_config.get("timeframe", config.timeframe))
 
     resolved_period, resolved_start, resolved_end = prepare_request_parameters(
         period, start, end, source_config.get("default_period", config.default_period)
@@ -479,6 +497,7 @@ def run_analysis(
         period=resolved_period,
         start=resolved_start,
         end=resolved_end,
+        interval=resolved_interval,
     )
 
     # Feature computation
@@ -588,6 +607,8 @@ def run_analysis(
         "period": resolved_period,
         "start": resolved_start,
         "end": resolved_end,
+        "interval": resolved_interval,
+        "profile": profile,
         "overlays_used": overlays_used,
     }
 
@@ -812,6 +833,8 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
     period: Optional[str] = cast(Optional[str], artefacts["period"])
     start: Optional[str] = cast(Optional[str], artefacts["start"])
     end: Optional[str] = cast(Optional[str], artefacts["end"])
+    interval: str = cast(str, artefacts.get("interval", "1d"))
+    profile: Optional[str] = cast(Optional[str], artefacts.get("profile"))
 
     print("\n" + "=" * 72)
     print("Julia Mandelbrot System - Unified Analysis")
@@ -820,6 +843,9 @@ def print_summary(symbol: str, artefacts: Dict[str, object]) -> None:
     date_info = f"period={period}" if period else f"start={start} • end={end}"
     print(f"Data range:    {date_info}")
     print(f"Source type:   {source_type} ({source_note})")
+    print(f"Interval:      {interval}")
+    if profile:
+        print(f"Profile:       {profile}")
     print(f"Observations:  {len(df):,}")
     if len(df) > 1:
         print(f"Date span:     {df.index[0].date()} → {df.index[-1].date()}")
@@ -1290,6 +1316,8 @@ def main() -> None:
             start=args.start,
             end=args.end,
             source_type=args.source_type,
+            interval=args.interval,
+            profile=args.profile,
             use_fuzzy=not args.no_fuzzy,
             horizons=args.horizons,
             adaptive_thresholds=args.adaptive_thresholds,

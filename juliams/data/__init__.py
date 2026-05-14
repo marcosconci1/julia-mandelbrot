@@ -78,6 +78,7 @@ def fetch_data(
     start: Optional[str] = None,
     end: Optional[str] = None,
     period: Optional[str] = None,
+    interval: str = "1d",
     config: Optional[JMSConfig] = None,
     source_type: Optional[Literal["stock", "crypto"]] = None,
 ) -> "pd.DataFrame":
@@ -89,6 +90,7 @@ def fetch_data(
         start: Start date (YYYY-MM-DD)
         end: End date (YYYY-MM-DD)
         period: Alternative to start/end (e.g., '1y', 'max')
+        interval: Bar interval passed to the selected data source
         config: JMSConfig overrides
         source_type: Optionally force source ('stock' or 'crypto')
 
@@ -102,7 +104,7 @@ def fetch_data(
         source_type=source_type,
         config=config,
     )
-    return fetcher.fetch_data(symbol, start=start, end=end, period=period)
+    return fetcher.fetch_data(symbol, start=start, end=end, period=period, interval=interval)
 
 
 __all__ = [
