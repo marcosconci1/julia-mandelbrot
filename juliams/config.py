@@ -98,6 +98,8 @@ class JMSConfig:
     use_fuzzy: bool = True
     fuzzy_trend_range: Tuple[float, float] = (-3.0, 3.0)
     fuzzy_vol_range: Tuple[float, float] = (0.0, 0.5)
+    fuzzy_volatility_source: str = "volatility"
+    fuzzy_vol_percentile_range: Tuple[float, float] = (0.0, 1.0)
 
     # Adaptive (data-driven) regime overlays. All default to off so that
     # existing callers see identical behaviour.
@@ -196,6 +198,8 @@ class JMSConfig:
             "use_fuzzy": self.use_fuzzy,
             "fuzzy_trend_range": self.fuzzy_trend_range,
             "fuzzy_vol_range": self.fuzzy_vol_range,
+            "fuzzy_volatility_source": self.fuzzy_volatility_source,
+            "fuzzy_vol_percentile_range": self.fuzzy_vol_percentile_range,
             "forward_return_horizons": self.forward_return_horizons,
             "regime_colors": self.regime_colors,
             "regime_names": self.regime_names,
@@ -238,6 +242,8 @@ class JMSConfig:
             "use_fuzzy": self.use_fuzzy,
             "fuzzy_trend_range": self.fuzzy_trend_range,
             "fuzzy_vol_range": self.fuzzy_vol_range,
+            "fuzzy_volatility_source": self.fuzzy_volatility_source,
+            "fuzzy_vol_percentile_range": self.fuzzy_vol_percentile_range,
             "adaptive_thresholds": self.adaptive_thresholds,
             "adaptive_threshold_window": self.adaptive_threshold_window,
             "adaptive_q_up": self.adaptive_q_up,
@@ -318,6 +324,10 @@ class JMSConfig:
             raise ValueError("Invalid fuzzy_trend_range")
         if self.fuzzy_vol_range[0] >= self.fuzzy_vol_range[1]:
             raise ValueError("Invalid fuzzy_vol_range")
+        if self.fuzzy_vol_percentile_range[0] >= self.fuzzy_vol_percentile_range[1]:
+            raise ValueError("Invalid fuzzy_vol_percentile_range")
+        if self.fuzzy_volatility_source not in {"volatility", "raw", "percentile", "volatility_percentile"}:
+            raise ValueError("Invalid fuzzy_volatility_source")
         return True
 
 

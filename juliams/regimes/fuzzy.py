@@ -31,8 +31,9 @@ class FuzzyRegimeClassifier:
     
     def __init__(self,
                  trend_range: Tuple[float, float] = (-3.0, 3.0),
-                 volatility_range: Tuple[float, float] = (0.0, 0.5),
-                 resolution: int = 1001):
+                 volatility_range: Optional[Tuple[float, float]] = None,
+                 resolution: int = 1001,
+                 volatility_source: str = "volatility"):
         """
         Initialize the fuzzy regime classifier.
         
@@ -40,10 +41,15 @@ class FuzzyRegimeClassifier:
             trend_range: Range for trend strength universe
             volatility_range: Range for volatility universe
             resolution: Number of points in universe discretization
+            volatility_source: Input column used by classify_fuzzy
         """
+        volatility_source = _normalize_volatility_source(volatility_source)
         self.trend_range = trend_range
+        if volatility_range is None:
+            volatility_range = (0.0, 1.0) if volatility_source == "volatility_percentile" else (0.0, 0.5)
         self.volatility_range = volatility_range
         self.resolution = resolution
+        self.volatility_source = volatility_source
         
         if SKFUZZY_AVAILABLE:
             self._setup_fuzzy_system()
@@ -255,12 +261,13 @@ class FuzzyRegimeClassifier:
         
         return regime_memberships
     
-    def classify_fuzzy(self, df: pd.DataFrame) -> pd.DataFrame:
+    def classify_fuzzy(self, df: pd.DataFrame, volatility_col: Optional[str] = None) -> pd.DataFrame:
         """
         Perform fuzzy classification on entire DataFrame.
         
         Args:
             df: DataFrame with trend_strength and volatility columns
+            volatility_col: Optional override for the configured volatility input
         
         Returns:
             DataFrame with fuzzy membership columns added
@@ -270,8 +277,9 @@ class FuzzyRegimeClassifier:
         # Check required columns
         if 'trend_strength' not in df.columns:
             raise ValueError("DataFrame must contain 'trend_strength' column")
-        if 'volatility' not in df.columns:
-            raise ValueError("DataFrame must contain 'volatility' column")
+        vol_col = _normalize_volatility_source(volatility_col or self.volatility_source)
+        if vol_col not in df.columns:
+            raise ValueError(f"DataFrame must contain '{vol_col}' column")
         
         # Initialize membership columns
         for regime in ['Up-LowVol', 'Up-HighVol', 'Sideways-LowVol', 
@@ -280,10 +288,10 @@ class FuzzyRegimeClassifier:
         
         # Calculate memberships for each row
         for idx in df.index:
-            if pd.notna(df.loc[idx, 'trend_strength']) and pd.notna(df.loc[idx, 'volatility']):
+            if pd.notna(df.loc[idx, 'trend_strength']) and pd.notna(df.loc[idx, vol_col]):
                 memberships = self.get_regime_memberships(
                     df.loc[idx, 'trend_strength'],
-                    df.loc[idx, 'volatility'],
+                    df.loc[idx, vol_col],
                     normalize=True
                 )
                 
@@ -423,6 +431,23 @@ class FuzzyRegimeClassifier:
         return text
 
 
+def _normalize_volatility_source(source: str) -> str:
+    normalized = source.lower().strip()
+    aliases = {
+        "raw": "volatility",
+        "vol": "volatility",
+        "volatility": "volatility",
+        "percentile": "volatility_percentile",
+        "vol_percentile": "volatility_percentile",
+        "volatility_percentile": "volatility_percentile",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "volatility_source must be one of: volatility, raw, volatility_percentile, percentile"
+        )
+    return aliases[normalized]
+
+
 def compute_fuzzy_features(df: pd.DataFrame,
                           config: Optional[dict] = None) -> pd.DataFrame:
     """
@@ -438,15 +463,26 @@ def compute_fuzzy_features(df: pd.DataFrame,
     if config is None:
         config = {
             'fuzzy_trend_range': (-3.0, 3.0),
-            'fuzzy_vol_range': (0.0, 0.5)
+            'fuzzy_vol_range': (0.0, 0.5),
+            'fuzzy_volatility_source': 'volatility',
+            'fuzzy_vol_percentile_range': (0.0, 1.0),
         }
     
     if not SKFUZZY_AVAILABLE:
         logger.warning("scikit-fuzzy not available. Fuzzy features will use fallback implementation.")
     
+    volatility_source = _normalize_volatility_source(
+        config.get('fuzzy_volatility_source', 'volatility')
+    )
+    if volatility_source == 'volatility_percentile':
+        volatility_range = config.get('fuzzy_vol_percentile_range', (0.0, 1.0))
+    else:
+        volatility_range = config.get('fuzzy_vol_range', (0.0, 0.5))
+
     classifier = FuzzyRegimeClassifier(
         trend_range=config.get('fuzzy_trend_range', (-3.0, 3.0)),
-        volatility_range=config.get('fuzzy_vol_range', (0.0, 0.5))
+        volatility_range=volatility_range,
+        volatility_source=volatility_source,
     )
     
     return classifier.classify_fuzzy(df)
