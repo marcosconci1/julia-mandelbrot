@@ -1,6 +1,8 @@
 # Julia Mandelbrot System
 
-A Python library for market regime indicators. It combines trend/volatility analysis, fractal (Hurst) analysis, tail-risk diagnostics, fuzzy memberships, and change-point overlays into a regime nowcast.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+A Python library for market regime indicators. It combines trend/volatility analysis, fractal (Hurst) analysis, tail-risk diagnostics, fuzzy memberships, and change-point overlays into a regime nowcast pipeline.
 
 This repo does not define trading entries, exits, position sizing, or risk limits. It produces indicator columns that another system can consume.
 
@@ -99,7 +101,7 @@ The system supports multiple asset classes through automatic source detection:
 - **Forex**: EURUSD=X, GBPUSD=X, BRL=X (via Yahoo Finance)
 - **Futures**: GC=F (Gold), ES=F (E-mini S&P), CL=F (Crude Oil)
 
-Forex pairs with strong external drivers, such as `BRL=X`, can be labeled by the indicator, but should be calibrated and interpreted on their own terms. Do not read an equity-index regime profile as a rule for those pairs.
+Forex pairs with strong external drivers, such as `BRL=X`, can be labeled by the indicator, but should be calibrated and interpreted on their own terms. Do not read an equity-index regime profile into a currency pair without retuning windows and thresholds.
 
 Programmatic usage (for notebooks / pipelines):
 
@@ -187,11 +189,11 @@ The classifier adds four columns that help consumers decide whether a row is usa
 | `warmup_complete` | True once enough bars have accumulated |
 | `valid_signal` | True when warmup is complete and the core regime is not `Unknown` |
 
-The rolling calculations are right-aligned and intended for live-style use after the current bar is known. Consumers that trade on these columns should still apply their own signal lag and execution rules outside this repo.
+The rolling calculations are right-aligned and intended for live-style use after the current bar is known. Consumers that trade on these columns should still apply their own signal lag and execution assumptions.
 
 ### Adaptive Overlays
 
-The legacy classifier uses fixed thresholds that can drift out of calibration when market structure changes. Opt in to one or more adaptive overlays to add columns alongside the existing `regime` output. Defaults preserve the legacy behaviour exactly.
+The legacy classifier uses fixed thresholds that can drift out of calibration when market structure changes. Opt in to one or more adaptive overlays to add columns alongside the existing `regime` labels.
 
 ```bash
 python main.py PLTR \
@@ -216,11 +218,11 @@ Each flag adds columns rather than replacing them:
 | `--consensus-overlay` | `consensus_event` | Boolean events that fire only when DSM BOCPD and Markov both flag a change within a 5 day window |
 | `--min-dwell-days N` | (post-processes `markov_state`) | Suppresses runs shorter than N days |
 
-The same flags map to keyword arguments on `JuliaMandelbrotSystem.classify_regimes` and `JMSConfig` for programmatic use. For walk-forward calibration with strict no-future-leakage guarantees, see `juliams.regimes.walk_forward_adaptive`. For backtest-overfitting evaluation use `juliams.regimes.cpcv` (Arian, Norouzi & Seco 2024).
+The same flags map to keyword arguments on `JuliaMandelbrotSystem.classify_regimes` and `JMSConfig` for programmatic use. For walk-forward calibration with strict no-future-leakage guarantees, see `docs/no_future_leakage.md`.
 
 #### Gold case study
 
-On `GC=F` 2024 to 2026, the standard BOCPD reports `run_length=502` (no change point detected) despite the worst gold rout since 1983 in early February 2026. Switching to `--bocpd-method dsm` correctly identifies 2026-01-30 as a regime break. Adding `--markov-auto-vol-channel` fuses the GVZ implied vol index into the Markov fit and flips the recent regime label from Low to High vol, matching the elevated GVZ reading. See `tests/test_dsm_gold_regression.py` and `tests/test_consensus.py::test_consensus_fires_exactly_once_on_gold_like_fixture` for the regression locks.
+On `GC=F` 2024 to 2026, the standard BOCPD reports `run_length=502` (no change point detected) despite the worst gold rout since 1983 in early February 2026. Switching to `--bocpd-method dsm` correctly triggers a change-point spike near 1.0 around the shock window and shortens average run length to around two weeks.
 
 ### Custom Configuration
 
