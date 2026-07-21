@@ -1,6 +1,6 @@
 # Julia Mandelbrot System
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 A Python library for market regime indicators. It combines trend/volatility analysis, fractal (Hurst) analysis, tail-risk diagnostics, fuzzy memberships, and change-point overlays into a regime nowcast pipeline.
 
