@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.egg-info/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Internal planning/working folders (not part of the package)
+openspec/
+graphify-out/
+.claude/
+.codex/
+.agents/
+.paseo/
