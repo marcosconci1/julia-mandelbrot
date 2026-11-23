@@ -127,7 +127,7 @@ def test_journal_redaction_keeps_ts_and_kind_only(tmp_path, monkeypatch):
             f"event_{idx}",
             ticker="SECRET_TICKER_XYZ",
             out="/home/secretuser/report.html",
-            api_key="sk-secret-value-12345",
+            api_key="EXAMPLE-KEY-VALUE",
         )
 
     redacted = journal_mod.read_redacted_events(limit=20)
@@ -138,7 +138,7 @@ def test_journal_redaction_keeps_ts_and_kind_only(tmp_path, monkeypatch):
         assert set(item.keys()) == {"ts", "kind"}
         assert "SECRET_TICKER_XYZ" not in json.dumps(item)
         assert "secretuser" not in json.dumps(item)
-        assert "sk-secret-value-12345" not in json.dumps(item)
+        assert "EXAMPLE-KEY-VALUE" not in json.dumps(item)
 
 
 def test_doctor_checks_pass_on_sane_env_and_fail_injection(tmp_path, monkeypatch, capsys):
